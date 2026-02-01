@@ -48,6 +48,9 @@ importers:
 
   apps/clutchd:
     dependencies:
+      '@clutch/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@fastify/cors':
         specifier: ^9.0.0
         version: 9.0.1

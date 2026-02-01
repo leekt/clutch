@@ -1,21 +1,55 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { messageRepository, auditRepository, channelRepository } from '../repositories/index.js';
-import { validateMessage, MessageValidationError } from '../services/message-validator.js';
 import { pubsub } from '../queue/index.js';
+import { generateMessageId, generateThreadId, generateRunId, generateTaskId } from '@clutch/protocol';
 
-const messageSchema = z.object({
-  type: z.enum(['PLAN', 'PROPOSAL', 'EXEC_REPORT', 'REVIEW', 'BLOCKER']),
-  senderId: z.string().uuid(),
-  taskId: z.string().uuid().optional(),
-  threadId: z.string().uuid().optional(),
-  summary: z.string().min(1),
-  body: z.string().min(1),
-  artifacts: z.array(z.object({
-    path: z.string(),
-    hash: z.string(),
-  })).default([]),
-  citations: z.array(z.string()).default([]),
+// Input schema for creating messages (API level)
+const createMessageSchema = z.object({
+  // Type system
+  type: z.enum([
+    'task.request', 'task.accept', 'task.progress', 'task.result', 'task.error', 'task.cancel', 'task.timeout',
+    'chat.message', 'chat.system',
+    'tool.call', 'tool.result', 'tool.error',
+    'agent.register', 'agent.heartbeat', 'agent.update',
+    'routing.decision', 'routing.failure',
+  ]),
+  domain: z.enum(['research', 'code', 'code_review', 'planning', 'review', 'ops', 'security', 'marketing']).optional(),
+  payloadType: z.string().optional(),
+
+  // Addressing
+  fromAgentId: z.string(),
+  toAgentIds: z.array(z.string()).min(1),
+
+  // Task hierarchy (optional - will be generated if not provided)
+  threadId: z.string().optional(),
+  runId: z.string().optional(),
+  taskId: z.string().optional(),
+  parentTaskId: z.string().optional(),
+
+  // Content
+  payload: z.unknown(),
+
+  // Capability routing
+  requires: z.array(z.string()).optional(),
+  prefers: z.array(z.string()).optional(),
+
+  // Attachments
+  attachments: z.array(z.object({
+    kind: z.enum(['artifact_ref', 'inline', 'url']),
+    ref: z.string().optional(),
+    content: z.unknown().optional(),
+    url: z.string().optional(),
+    mimeType: z.string().optional(),
+  })).optional(),
+
+  // Delivery
+  idempotencyKey: z.string().optional(),
+
+  // Metadata
+  meta: z.record(z.unknown()).optional(),
+
+  // Cost tracking
   cost: z.string().optional(),
   runtime: z.number().optional(),
   tokens: z.number().optional(),
@@ -24,31 +58,48 @@ const messageSchema = z.object({
 export async function messageRoutes(app: FastifyInstance) {
   // List messages in a channel
   app.get<{ Params: { channelId: string } }>('/api/channels/:channelId/messages', async (request, reply) => {
-    const query = request.query as { threadId?: string };
+    const query = request.query as { threadId?: string; limit?: string };
+    const limit = query.limit ? parseInt(query.limit, 10) : 50;
 
     let messages;
     if (query.threadId) {
-      messages = await messageRepository.findThreadReplies(query.threadId);
+      messages = await messageRepository.findByThreadId(query.threadId);
     } else {
-      messages = await messageRepository.findByChannel(request.params.channelId);
+      messages = await messageRepository.findByChannel(request.params.channelId, limit);
     }
 
     return reply.send({ messages });
   });
 
+  // List messages by run
+  app.get<{ Params: { runId: string } }>('/api/runs/:runId/messages', async (request, reply) => {
+    const messages = await messageRepository.findByRunId(request.params.runId);
+    return reply.send({ messages });
+  });
+
+  // List messages by task
+  app.get<{ Params: { taskId: string } }>('/api/tasks/:taskId/messages', async (request, reply) => {
+    const messages = await messageRepository.findByTaskId(request.params.taskId);
+    return reply.send({ messages });
+  });
+
   // Get message by ID
   app.get<{ Params: { id: string } }>('/api/messages/:id', async (request, reply) => {
-    const message = await messageRepository.findById(request.params.id);
+    // Try by UUID first, then by messageId
+    let message = await messageRepository.findById(request.params.id);
+    if (!message) {
+      message = await messageRepository.findByMessageId(request.params.id);
+    }
     if (!message) {
       return reply.status(404).send({ error: 'Message not found' });
     }
     return reply.send({ message });
   });
 
-  // Get thread replies
-  app.get<{ Params: { id: string } }>('/api/messages/:id/replies', async (request, reply) => {
-    const replies = await messageRepository.findThreadReplies(request.params.id);
-    return reply.send({ replies });
+  // Get thread messages
+  app.get<{ Params: { threadId: string } }>('/api/threads/:threadId/messages', async (request, reply) => {
+    const messages = await messageRepository.findByThreadId(request.params.threadId);
+    return reply.send({ messages });
   });
 
   // Create message in channel
@@ -59,40 +110,131 @@ export async function messageRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: 'Channel not found' });
     }
 
-    const result = messageSchema.safeParse(request.body);
+    const result = createMessageSchema.safeParse(request.body);
     if (!result.success) {
       return reply.status(400).send({ error: 'Invalid message data', details: result.error.issues });
     }
 
-    // Validate message protocol requirements
-    try {
-      validateMessage(result.data);
-    } catch (error) {
-      if (error instanceof MessageValidationError) {
-        return reply.status(400).send({ error: 'Message protocol violation', details: error.errors });
+    const data = result.data;
+
+    // Generate IDs if not provided
+    const messageId = generateMessageId();
+    const threadId = data.threadId ?? generateThreadId();
+    const runId = data.runId ?? generateRunId();
+    const taskId = data.taskId ?? generateTaskId();
+
+    // Check for duplicate (idempotency)
+    if (data.idempotencyKey) {
+      const existing = await messageRepository.findByIdempotencyKey(data.idempotencyKey, runId);
+      if (existing) {
+        return reply.send({ message: existing, duplicate: true });
       }
-      throw error;
     }
 
+    // Create the database record
     const message = await messageRepository.create({
-      ...result.data,
+      messageId,
+      version: 'clutch/0.1',
+      threadId,
+      runId,
+      taskId,
+      parentTaskId: data.parentTaskId ?? null,
+      fromAgentId: data.fromAgentId,
+      toAgentIds: data.toAgentIds,
+      type: data.type,
+      domain: data.domain ?? null,
+      payloadType: data.payloadType ?? null,
+      payload: data.payload,
+      requires: data.requires ?? [],
+      prefers: data.prefers ?? [],
+      attachments: data.attachments ?? [],
+      idempotencyKey: data.idempotencyKey ?? null,
+      meta: data.meta ?? {},
       channelId: request.params.channelId,
+      cost: data.cost ?? '0',
+      runtime: data.runtime ?? 0,
+      tokens: data.tokens ?? 0,
     });
 
-    await auditRepository.logAction('message.created', 'message', message.id, {
-      agentId: result.data.senderId,
+    await auditRepository.logAction('message.created', 'message', messageId, {
+      agentId: data.fromAgentId,
+      runId,
+      taskId,
       details: { type: message.type, channelId: request.params.channelId },
-      cost: result.data.cost,
-      runtime: result.data.runtime,
-      tokens: result.data.tokens,
+      cost: data.cost,
+      runtime: data.runtime,
+      tokens: data.tokens,
     });
 
-    await pubsub.publishMessageUpdate(message.id, 'created', message);
+    await pubsub.publishMessageUpdate(messageId, 'created', message);
 
     return reply.status(201).send({ message });
   });
 
-  // Delete message
+  // Create message directly (without channel)
+  app.post('/api/messages', async (request, reply) => {
+    const result = createMessageSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(400).send({ error: 'Invalid message data', details: result.error.issues });
+    }
+
+    const data = result.data;
+
+    // Generate IDs if not provided
+    const messageId = generateMessageId();
+    const threadId = data.threadId ?? generateThreadId();
+    const runId = data.runId ?? generateRunId();
+    const taskId = data.taskId ?? generateTaskId();
+
+    // Check for duplicate (idempotency)
+    if (data.idempotencyKey) {
+      const existing = await messageRepository.findByIdempotencyKey(data.idempotencyKey, runId);
+      if (existing) {
+        return reply.send({ message: existing, duplicate: true });
+      }
+    }
+
+    // Create the database record
+    const message = await messageRepository.create({
+      messageId,
+      version: 'clutch/0.1',
+      threadId,
+      runId,
+      taskId,
+      parentTaskId: data.parentTaskId ?? null,
+      fromAgentId: data.fromAgentId,
+      toAgentIds: data.toAgentIds,
+      type: data.type,
+      domain: data.domain ?? null,
+      payloadType: data.payloadType ?? null,
+      payload: data.payload,
+      requires: data.requires ?? [],
+      prefers: data.prefers ?? [],
+      attachments: data.attachments ?? [],
+      idempotencyKey: data.idempotencyKey ?? null,
+      meta: data.meta ?? {},
+      channelId: null,
+      cost: data.cost ?? '0',
+      runtime: data.runtime ?? 0,
+      tokens: data.tokens ?? 0,
+    });
+
+    await auditRepository.logAction('message.created', 'message', messageId, {
+      agentId: data.fromAgentId,
+      runId,
+      taskId,
+      details: { type: message.type },
+      cost: data.cost,
+      runtime: data.runtime,
+      tokens: data.tokens,
+    });
+
+    await pubsub.publishMessageUpdate(messageId, 'created', message);
+
+    return reply.status(201).send({ message });
+  });
+
+  // Delete message (should rarely be used - event store is append-only)
   app.delete<{ Params: { id: string } }>('/api/messages/:id', async (request, reply) => {
     const deleted = await messageRepository.delete(request.params.id);
     if (!deleted) {

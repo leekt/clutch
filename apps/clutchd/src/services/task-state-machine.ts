@@ -1,24 +1,36 @@
 import type { TaskState } from '../repositories/index.js';
 
 export const VALID_TRANSITIONS: Record<TaskState, TaskState[]> = {
-  created: ['assigned'],
-  assigned: ['running', 'created'], // can unassign back to created
-  running: ['review', 'assigned'], // can pause back to assigned
-  review: ['done', 'rework'],
-  rework: ['running', 'review'], // can go directly to review if quick fix
+  created: ['assigned', 'cancelled'],
+  assigned: ['running', 'created', 'cancelled'], // can unassign back to created
+  running: ['review', 'assigned', 'failed', 'cancelled'], // can pause back to assigned
+  review: ['done', 'rework', 'cancelled'],
+  rework: ['running', 'review', 'cancelled'], // can go directly to review if quick fix
   done: [], // terminal state
+  cancelled: [], // terminal state
+  failed: ['created', 'assigned'], // can retry from failed
 };
 
 export function isValidTransition(from: TaskState, to: TaskState): boolean {
-  return VALID_TRANSITIONS[from].includes(to);
+  const validStates = VALID_TRANSITIONS[from];
+  return validStates ? validStates.includes(to) : false;
 }
 
 export function getValidTransitions(state: TaskState): TaskState[] {
-  return VALID_TRANSITIONS[state];
+  return VALID_TRANSITIONS[state] ?? [];
+}
+
+export function isTerminalState(state: TaskState): boolean {
+  return state === 'done' || state === 'cancelled';
+}
+
+export function isActiveState(state: TaskState): boolean {
+  return state === 'running' || state === 'review' || state === 'rework';
 }
 
 export interface TaskStateEvent {
   taskId: string;
+  runId: string;
   from: TaskState;
   to: TaskState;
   timestamp: Date;
@@ -48,6 +60,14 @@ export class TaskStateMachine {
 
   getNextStates(current: TaskState): TaskState[] {
     return getValidTransitions(current);
+  }
+
+  isTerminal(state: TaskState): boolean {
+    return isTerminalState(state);
+  }
+
+  isActive(state: TaskState): boolean {
+    return isActiveState(state);
   }
 }
 

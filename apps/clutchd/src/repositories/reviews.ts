@@ -1,11 +1,11 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db, reviews, type Review, type NewReview } from '../db/index.js';
 
 export type ReviewStatus = Review['status'];
 
 export const reviewRepository = {
-  async findAll(): Promise<Review[]> {
-    return db.select().from(reviews);
+  async findAll(limit = 100): Promise<Review[]> {
+    return db.select().from(reviews).orderBy(desc(reviews.createdAt)).limit(limit);
   },
 
   async findById(id: string): Promise<Review | undefined> {
@@ -13,12 +13,24 @@ export const reviewRepository = {
     return review;
   },
 
-  async findByTask(taskId: string): Promise<Review[]> {
-    return db.select().from(reviews).where(eq(reviews.taskId, taskId));
+  async findByTaskId(taskId: string): Promise<Review[]> {
+    return db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.taskId, taskId))
+      .orderBy(desc(reviews.createdAt));
+  },
+
+  async findByMessageId(messageId: string): Promise<Review[]> {
+    return db.select().from(reviews).where(eq(reviews.messageId, messageId));
   },
 
   async findByReviewer(reviewerId: string): Promise<Review[]> {
-    return db.select().from(reviews).where(eq(reviews.reviewerId, reviewerId));
+    return db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.reviewerId, reviewerId))
+      .orderBy(desc(reviews.createdAt));
   },
 
   async findByStatus(status: ReviewStatus): Promise<Review[]> {
@@ -46,12 +58,28 @@ export const reviewRepository = {
     return review;
   },
 
-  async approve(id: string, comments?: string): Promise<Review | undefined> {
-    return this.update(id, { status: 'approved', comments });
+  async approve(
+    id: string,
+    feedback?: { score?: number; suggestions?: string[] },
+    comments?: string
+  ): Promise<Review | undefined> {
+    return this.update(id, {
+      status: 'approved',
+      comments,
+      feedback: { approved: true, ...feedback },
+    });
   },
 
-  async reject(id: string, comments: string): Promise<Review | undefined> {
-    return this.update(id, { status: 'rejected', comments });
+  async reject(
+    id: string,
+    comments: string,
+    issues?: Array<{ type: string; message: string; severity: string }>
+  ): Promise<Review | undefined> {
+    return this.update(id, {
+      status: 'rejected',
+      comments,
+      feedback: { approved: false, issues },
+    });
   },
 
   async delete(id: string): Promise<boolean> {

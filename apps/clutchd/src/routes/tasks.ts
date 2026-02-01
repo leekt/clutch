@@ -3,29 +3,51 @@ import { z } from 'zod';
 import { taskRepository, auditRepository } from '../repositories/index.js';
 import { isValidTransition, VALID_TRANSITIONS } from '../services/task-state-machine.js';
 import { pubsub } from '../queue/index.js';
+import { generateTaskId, generateRunId } from '@clutch/protocol';
 
-const taskSchema = z.object({
+const taskStateSchema = z.enum(['created', 'assigned', 'running', 'review', 'rework', 'done', 'cancelled', 'failed']);
+
+const createTaskSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
+
+  // Task hierarchy
+  runId: z.string().optional(), // Will be generated if not provided
+  parentTaskId: z.string().optional(),
+
+  // Workflow
   workflowId: z.string().optional(),
   workflowStepId: z.string().optional(),
+
+  // Assignment
   assigneeId: z.string().uuid().optional(),
-  parentId: z.string().uuid().optional(),
+
+  // Channel
   channelId: z.string().uuid().optional(),
+
+  // Constraints
+  constraints: z.object({
+    maxTokens: z.number().optional(),
+    maxRuntimeSec: z.number().optional(),
+    maxCost: z.number().optional(),
+  }).optional(),
+
+  // Metadata
   metadata: z.record(z.unknown()).optional(),
 });
 
-const updateTaskSchema = taskSchema.partial();
-
-const taskStateSchema = z.enum(['created', 'assigned', 'running', 'review', 'rework', 'done']);
+const updateTaskSchema = createTaskSchema.partial();
 
 export async function taskRoutes(app: FastifyInstance) {
   // List all tasks
   app.get('/api/tasks', async (request, reply) => {
-    const query = request.query as { state?: string; assigneeId?: string };
+    const query = request.query as { state?: string; assigneeId?: string; runId?: string; limit?: string };
+    const limit = query.limit ? parseInt(query.limit, 10) : 100;
 
     let tasks;
-    if (query.state) {
+    if (query.runId) {
+      tasks = await taskRepository.findByRunId(query.runId);
+    } else if (query.state) {
       const stateResult = taskStateSchema.safeParse(query.state);
       if (!stateResult.success) {
         return reply.status(400).send({ error: 'Invalid state filter' });
@@ -34,15 +56,18 @@ export async function taskRoutes(app: FastifyInstance) {
     } else if (query.assigneeId) {
       tasks = await taskRepository.findByAssignee(query.assigneeId);
     } else {
-      tasks = await taskRepository.findAll();
+      tasks = await taskRepository.findAll(limit);
     }
 
     return reply.send({ tasks });
   });
 
-  // Get task by ID
+  // Get task by ID (supports UUID or taskId)
   app.get<{ Params: { id: string } }>('/api/tasks/:id', async (request, reply) => {
-    const task = await taskRepository.findById(request.params.id);
+    let task = await taskRepository.findById(request.params.id);
+    if (!task) {
+      task = await taskRepository.findByTaskId(request.params.id);
+    }
     if (!task) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -50,25 +75,49 @@ export async function taskRoutes(app: FastifyInstance) {
   });
 
   // Get subtasks
-  app.get<{ Params: { id: string } }>('/api/tasks/:id/subtasks', async (request, reply) => {
-    const subtasks = await taskRepository.findSubtasks(request.params.id);
+  app.get<{ Params: { taskId: string } }>('/api/tasks/:taskId/subtasks', async (request, reply) => {
+    const subtasks = await taskRepository.findSubtasks(request.params.taskId);
     return reply.send({ subtasks });
+  });
+
+  // Get tasks by run
+  app.get<{ Params: { runId: string } }>('/api/runs/:runId/tasks', async (request, reply) => {
+    const tasks = await taskRepository.findByRunId(request.params.runId);
+    return reply.send({ tasks });
   });
 
   // Create task
   app.post('/api/tasks', async (request, reply) => {
-    const result = taskSchema.safeParse(request.body);
+    const result = createTaskSchema.safeParse(request.body);
     if (!result.success) {
       return reply.status(400).send({ error: 'Invalid task data', details: result.error.issues });
     }
 
-    const task = await taskRepository.create(result.data);
+    const data = result.data;
+    const taskId = generateTaskId();
+    const runId = data.runId ?? generateRunId();
 
-    await auditRepository.logAction('task.created', 'task', task.id, {
+    const task = await taskRepository.create({
+      taskId,
+      runId,
+      parentTaskId: data.parentTaskId ?? null,
+      title: data.title,
+      description: data.description ?? null,
+      workflowId: data.workflowId ?? null,
+      workflowStepId: data.workflowStepId ?? null,
+      assigneeId: data.assigneeId ?? null,
+      channelId: data.channelId ?? null,
+      constraints: data.constraints ?? {},
+      metadata: data.metadata ?? {},
+    });
+
+    await auditRepository.logAction('task.created', 'task', taskId, {
+      runId,
+      taskId,
       details: { title: task.title },
     });
 
-    await pubsub.publishTaskUpdate(task.id, 'created', task);
+    await pubsub.publishTaskUpdate(taskId, 'created', task);
 
     return reply.status(201).send({ task });
   });
@@ -80,25 +129,33 @@ export async function taskRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid task data', details: result.error.issues });
     }
 
-    const task = await taskRepository.update(request.params.id, result.data);
+    // Find by UUID or taskId
+    let task = await taskRepository.findById(request.params.id);
+    if (!task) {
+      task = await taskRepository.findByTaskId(request.params.id);
+    }
     if (!task) {
       return reply.status(404).send({ error: 'Task not found' });
     }
 
-    await auditRepository.logAction('task.updated', 'task', task.id, {
+    const updated = await taskRepository.update(task.id, result.data);
+
+    await auditRepository.logAction('task.updated', 'task', task.taskId, {
+      runId: task.runId,
+      taskId: task.taskId,
       details: result.data,
     });
 
-    await pubsub.publishTaskUpdate(task.id, 'updated', task);
+    await pubsub.publishTaskUpdate(task.taskId, 'updated', updated);
 
-    return reply.send({ task });
+    return reply.send({ task: updated });
   });
 
   // Update task state (with state machine validation)
   app.patch<{ Params: { id: string } }>('/api/tasks/:id/state', async (request, reply) => {
     const stateChangeSchema = z.object({
       state: taskStateSchema,
-      agentId: z.string().uuid().optional(),
+      agentId: z.string().optional(),
     });
 
     const result = stateChangeSchema.safeParse(request.body);
@@ -106,7 +163,11 @@ export async function taskRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid state change', details: result.error.issues });
     }
 
-    const currentTask = await taskRepository.findById(request.params.id);
+    // Find by UUID or taskId
+    let currentTask = await taskRepository.findById(request.params.id);
+    if (!currentTask) {
+      currentTask = await taskRepository.findByTaskId(request.params.id);
+    }
     if (!currentTask) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -118,19 +179,21 @@ export async function taskRoutes(app: FastifyInstance) {
         details: {
           currentState: currentTask.state,
           requestedState: result.data.state,
-          validTransitions: VALID_TRANSITIONS[currentTask.state],
+          validTransitions: VALID_TRANSITIONS[currentTask.state] ?? [],
         },
       });
     }
 
-    const task = await taskRepository.updateState(request.params.id, result.data.state);
+    const task = await taskRepository.updateState(currentTask.taskId, result.data.state);
 
-    await auditRepository.logAction('task.state_changed', 'task', task!.id, {
+    await auditRepository.logAction('task.state_changed', 'task', currentTask.taskId, {
       agentId: result.data.agentId,
+      runId: currentTask.runId,
+      taskId: currentTask.taskId,
       details: { from: currentTask.state, to: result.data.state },
     });
 
-    await pubsub.publishTaskUpdate(task!.id, 'state_changed', task);
+    await pubsub.publishTaskUpdate(currentTask.taskId, 'state_changed', task);
 
     return reply.send({ task });
   });
@@ -146,17 +209,98 @@ export async function taskRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid assignment', details: result.error.issues });
     }
 
-    const task = await taskRepository.assign(request.params.id, result.data.assigneeId);
-    if (!task) {
+    // Find by UUID or taskId
+    let currentTask = await taskRepository.findById(request.params.id);
+    if (!currentTask) {
+      currentTask = await taskRepository.findByTaskId(request.params.id);
+    }
+    if (!currentTask) {
       return reply.status(404).send({ error: 'Task not found' });
     }
 
-    await auditRepository.logAction('task.assigned', 'task', task.id, {
+    const task = await taskRepository.assign(currentTask.taskId, result.data.assigneeId);
+
+    await auditRepository.logAction('task.assigned', 'task', currentTask.taskId, {
       agentId: result.data.assigneeId,
+      runId: currentTask.runId,
+      taskId: currentTask.taskId,
       details: { assigneeId: result.data.assigneeId },
     });
 
-    await pubsub.publishTaskUpdate(task.id, 'assigned', task);
+    await pubsub.publishTaskUpdate(currentTask.taskId, 'assigned', task);
+
+    return reply.send({ task });
+  });
+
+  // Set task output (complete successfully)
+  app.patch<{ Params: { id: string } }>('/api/tasks/:id/complete', async (request, reply) => {
+    const completeSchema = z.object({
+      output: z.unknown(),
+      agentId: z.string().optional(),
+    });
+
+    const result = completeSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(400).send({ error: 'Invalid completion data', details: result.error.issues });
+    }
+
+    // Find by UUID or taskId
+    let currentTask = await taskRepository.findById(request.params.id);
+    if (!currentTask) {
+      currentTask = await taskRepository.findByTaskId(request.params.id);
+    }
+    if (!currentTask) {
+      return reply.status(404).send({ error: 'Task not found' });
+    }
+
+    const task = await taskRepository.setOutput(currentTask.taskId, result.data.output);
+
+    await auditRepository.logAction('task.completed', 'task', currentTask.taskId, {
+      agentId: result.data.agentId,
+      runId: currentTask.runId,
+      taskId: currentTask.taskId,
+    });
+
+    await pubsub.publishTaskUpdate(currentTask.taskId, 'completed', task);
+
+    return reply.send({ task });
+  });
+
+  // Set task error (fail)
+  app.patch<{ Params: { id: string } }>('/api/tasks/:id/fail', async (request, reply) => {
+    const failSchema = z.object({
+      error: z.object({
+        code: z.string(),
+        message: z.string(),
+        retryable: z.boolean().default(false),
+      }),
+      agentId: z.string().optional(),
+    });
+
+    const result = failSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(400).send({ error: 'Invalid error data', details: result.error.issues });
+    }
+
+    // Find by UUID or taskId
+    let currentTask = await taskRepository.findById(request.params.id);
+    if (!currentTask) {
+      currentTask = await taskRepository.findByTaskId(request.params.id);
+    }
+    if (!currentTask) {
+      return reply.status(404).send({ error: 'Task not found' });
+    }
+
+    const task = await taskRepository.setError(currentTask.taskId, result.data.error);
+
+    await auditRepository.logAction('task.failed', 'task', currentTask.taskId, {
+      agentId: result.data.agentId,
+      runId: currentTask.runId,
+      taskId: currentTask.taskId,
+      details: { error: result.data.error },
+    });
+
+    await pubsub.publishTaskUpdate(currentTask.taskId, 'failed', task);
 
     return reply.send({ task });
   });

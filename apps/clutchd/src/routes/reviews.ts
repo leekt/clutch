@@ -4,8 +4,8 @@ import { reviewRepository, taskRepository, auditRepository } from '../repositori
 import { pubsub } from '../queue/index.js';
 
 const reviewSchema = z.object({
-  messageId: z.string().uuid(),
-  reviewerId: z.string().uuid(),
+  messageId: z.string(),
+  reviewerId: z.string(),
   comments: z.string().optional(),
 });
 
@@ -18,7 +18,7 @@ export async function reviewRoutes(app: FastifyInstance) {
     if (query.status === 'pending') {
       reviews = await reviewRepository.findPendingForTask(request.params.taskId);
     } else {
-      reviews = await reviewRepository.findByTask(request.params.taskId);
+      reviews = await reviewRepository.findByTaskId(request.params.taskId);
     }
 
     return reply.send({ reviews });
@@ -35,8 +35,8 @@ export async function reviewRoutes(app: FastifyInstance) {
 
   // Create review for a task
   app.post<{ Params: { taskId: string } }>('/api/tasks/:taskId/reviews', async (request, reply) => {
-    // Validate task exists
-    const task = await taskRepository.findById(request.params.taskId);
+    // Validate task exists (by taskId string)
+    const task = await taskRepository.findByTaskId(request.params.taskId);
     if (!task) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -53,6 +53,7 @@ export async function reviewRoutes(app: FastifyInstance) {
 
     await auditRepository.logAction('review.created', 'review', review.id, {
       agentId: result.data.reviewerId,
+      taskId: request.params.taskId,
       details: { taskId: request.params.taskId },
     });
 
@@ -63,9 +64,13 @@ export async function reviewRoutes(app: FastifyInstance) {
   app.post<{ Params: { taskId: string; reviewId: string } }>(
     '/api/tasks/:taskId/reviews/:reviewId/approve',
     async (request, reply) => {
-      const body = request.body as { comments?: string };
+      const body = request.body as { comments?: string; score?: number; suggestions?: string[] };
 
-      const review = await reviewRepository.approve(request.params.reviewId, body.comments);
+      const review = await reviewRepository.approve(
+        request.params.reviewId,
+        { score: body.score, suggestions: body.suggestions },
+        body.comments
+      );
       if (!review) {
         return reply.status(404).send({ error: 'Review not found' });
       }
@@ -75,12 +80,13 @@ export async function reviewRoutes(app: FastifyInstance) {
       if (pendingReviews.length === 0) {
         const task = await taskRepository.updateState(request.params.taskId, 'done');
         if (task) {
-          await pubsub.publishTaskUpdate(task.id, 'state_changed', task);
+          await pubsub.publishTaskUpdate(task.taskId, 'state_changed', task);
         }
       }
 
       await auditRepository.logAction('review.approved', 'review', review.id, {
         agentId: review.reviewerId,
+        taskId: request.params.taskId,
         details: { taskId: request.params.taskId, comments: body.comments },
       });
 
@@ -94,6 +100,11 @@ export async function reviewRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const rejectSchema = z.object({
         comments: z.string().min(1, 'Rejection requires comments'),
+        issues: z.array(z.object({
+          type: z.string(),
+          message: z.string(),
+          severity: z.string(),
+        })).optional(),
       });
 
       const result = rejectSchema.safeParse(request.body);
@@ -101,7 +112,11 @@ export async function reviewRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'Invalid rejection', details: result.error.issues });
       }
 
-      const review = await reviewRepository.reject(request.params.reviewId, result.data.comments);
+      const review = await reviewRepository.reject(
+        request.params.reviewId,
+        result.data.comments,
+        result.data.issues
+      );
       if (!review) {
         return reply.status(404).send({ error: 'Review not found' });
       }
@@ -109,11 +124,12 @@ export async function reviewRoutes(app: FastifyInstance) {
       // Update task state to rework
       const task = await taskRepository.updateState(request.params.taskId, 'rework');
       if (task) {
-        await pubsub.publishTaskUpdate(task.id, 'state_changed', task);
+        await pubsub.publishTaskUpdate(task.taskId, 'state_changed', task);
       }
 
       await auditRepository.logAction('review.rejected', 'review', review.id, {
         agentId: review.reviewerId,
+        taskId: request.params.taskId,
         details: { taskId: request.params.taskId, comments: result.data.comments },
       });
 

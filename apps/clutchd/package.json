@@ -17,6 +17,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@clutch/protocol": "workspace:*",
     "@fastify/cors": "^9.0.0",
     "@fastify/websocket": "^8.3.0",
     "drizzle-orm": "^0.38.0",

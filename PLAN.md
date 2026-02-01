@@ -425,6 +425,7 @@ Legacy message types map to protocol types:
 | 2026-02-01 | Refined Clutch Protocol v0 - added task hierarchy, schema registry, capability matching, delivery semantics | Claude |
 | 2026-02-01 | Created packages/protocol, packages/core, packages/adapters implementing Clutch Protocol v0 | Claude |
 | 2026-02-01 | Added A2A and MCP comparison section to Clutch Protocol docs and README | Claude |
+| 2026-02-01 | **MAJOR REFACTOR:** Removed legacy code, updated clutchd to use Clutch Protocol types. New schema with protocol-compliant message types, task hierarchy (run_id/task_id/parent_task_id), artifacts table, and proper indexes | Claude |
 
 ---
 
@@ -434,5 +435,5 @@ Legacy message types map to protocol types:
 - Technology stack: pnpm workspaces, Vite + React + Tailwind (web), Fastify + Drizzle (clutchd), Dockerode (agents)
 - Database: PostgreSQL with Drizzle ORM, migrations in `apps/clutchd/drizzle/`
 - Queue: Redis with ioredis, pub/sub for real-time events
-- Current Phase 2 implementation uses legacy message types - will be migrated to protocol-compliant types in Phase 2.5
+- All message types now follow Clutch Protocol: `task.*`, `chat.*`, `tool.*`, `agent.*`, `routing.*`
 - Framework adapters (A2A, MCP) enable support for LangGraph, AutoGen, crewAI, and other agent frameworks

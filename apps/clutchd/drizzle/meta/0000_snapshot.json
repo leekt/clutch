@@ -1,5 +1,5 @@
 {
-  "id": "f8fb86ea-6360-42cb-8815-7d8fc47cb9c0",
+  "id": "af8f6fe1-f64c-4373-b46a-136c307521e5",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -14,6 +14,12 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         },
         "name": {
           "name": "name",
@@ -34,11 +40,39 @@
           "primaryKey": false,
           "notNull": false
         },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'1.0.0'"
+        },
         "image": {
           "name": "image",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "endpoints": {
+          "name": "endpoints",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'::jsonb"
+        },
+        "capabilities": {
+          "name": "capabilities",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
+        },
+        "tools": {
+          "name": "tools",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
         },
         "permissions": {
           "name": "permissions",
@@ -52,6 +86,14 @@
           "primaryKey": false,
           "notNull": true
         },
+        "trust_level": {
+          "name": "trust_level",
+          "type": "trust_level",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'sandbox'"
+        },
         "secrets": {
           "name": "secrets",
           "type": "jsonb",
@@ -59,12 +101,25 @@
           "notNull": false,
           "default": "'[]'::jsonb"
         },
+        "max_concurrency": {
+          "name": "max_concurrency",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 1
+        },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "default": "'offline'"
+        },
+        "last_heartbeat": {
+          "name": "last_heartbeat",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -85,11 +140,138 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "agents_name_unique": {
-          "name": "agents_name_unique",
+        "agents_agent_id_unique": {
+          "name": "agents_agent_id_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "name"
+            "agent_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.artifacts": {
+      "name": "artifacts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hash": {
+          "name": "hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mime_type": {
+          "name": "mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "size": {
+          "name": "size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "storage_path": {
+          "name": "storage_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "artifacts_hash_idx": {
+          "name": "artifacts_hash_idx",
+          "columns": [
+            {
+              "expression": "hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "artifacts_task_id_idx": {
+          "name": "artifacts_task_id_idx",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "artifacts_artifact_id_unique": {
+          "name": "artifacts_artifact_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "artifact_id"
+          ]
+        },
+        "artifacts_hash_unique": {
+          "name": "artifacts_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "hash"
           ]
         }
       },
@@ -122,18 +304,30 @@
         },
         "entity_id": {
           "name": "entity_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "user_id": {
           "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_id": {
+          "name": "task_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -171,7 +365,53 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "audit_logs_run_id_idx": {
+          "name": "audit_logs_run_id_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_logs_task_id_idx": {
+          "name": "audit_logs_task_id_idx",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_logs_agent_id_idx": {
+          "name": "audit_logs_agent_id_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -249,6 +489,67 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'clutch/0.1'"
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "thread_id": {
+          "name": "thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_task_id": {
+          "name": "parent_task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trace_id": {
+          "name": "trace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "span_id": {
+          "name": "span_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "from_agent_id": {
+          "name": "from_agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_agent_ids": {
+          "name": "to_agent_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
         "type": {
           "name": "type",
           "type": "message_type",
@@ -256,55 +557,77 @@
           "primaryKey": false,
           "notNull": true
         },
+        "domain": {
+          "name": "domain",
+          "type": "domain",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload_type": {
+          "name": "payload_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "schema_ref": {
+          "name": "schema_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requires": {
+          "name": "requires",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
+        },
+        "prefers": {
+          "name": "prefers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
+        },
+        "attachments": {
+          "name": "attachments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 1
+        },
+        "meta": {
+          "name": "meta",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'::jsonb"
+        },
         "channel_id": {
           "name": "channel_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
-        },
-        "sender_id": {
-          "name": "sender_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "task_id": {
-          "name": "task_id",
-          "type": "uuid",
-          "primaryKey": false,
           "notNull": false
-        },
-        "thread_id": {
-          "name": "thread_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "artifacts": {
-          "name": "artifacts",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'[]'::jsonb"
-        },
-        "citations": {
-          "name": "citations",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'[]'::jsonb"
         },
         "cost": {
           "name": "cost",
@@ -335,10 +658,109 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "messages_thread_id_idx": {
+          "name": "messages_thread_id_idx",
+          "columns": [
+            {
+              "expression": "thread_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_run_id_idx": {
+          "name": "messages_run_id_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_task_id_idx": {
+          "name": "messages_task_id_idx",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_from_agent_id_idx": {
+          "name": "messages_from_agent_id_idx",
+          "columns": [
+            {
+              "expression": "from_agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_type_idx": {
+          "name": "messages_type_idx",
+          "columns": [
+            {
+              "expression": "type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_idempotency_key_idx": {
+          "name": "messages_idempotency_key_idx",
+          "columns": [
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "messages_message_id_unique": {
+          "name": "messages_message_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "message_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -356,19 +778,19 @@
         },
         "task_id": {
           "name": "task_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
         "message_id": {
           "name": "message_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
         "reviewer_id": {
           "name": "reviewer_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -383,6 +805,12 @@
         "comments": {
           "name": "comments",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "feedback": {
+          "name": "feedback",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -419,6 +847,24 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_task_id": {
+          "name": "parent_task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "title": {
           "name": "title",
@@ -458,15 +904,28 @@
           "primaryKey": false,
           "notNull": false
         },
-        "parent_id": {
-          "name": "parent_id",
+        "channel_id": {
+          "name": "channel_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "uuid",
+        "constraints": {
+          "name": "constraints",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'::jsonb"
+        },
+        "output": {
+          "name": "output",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error": {
+          "name": "error",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -491,6 +950,12 @@
           "notNull": true,
           "default": "now()"
         },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "completed_at": {
           "name": "completed_at",
           "type": "timestamp",
@@ -498,10 +963,64 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "tasks_run_id_idx": {
+          "name": "tasks_run_id_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tasks_parent_task_id_idx": {
+          "name": "tasks_parent_task_id_idx",
+          "columns": [
+            {
+              "expression": "parent_task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tasks_state_idx": {
+          "name": "tasks_state_idx",
+          "columns": [
+            {
+              "expression": "state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "tasks_task_id_unique": {
+          "name": "tasks_task_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "task_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -527,15 +1046,41 @@
         "department"
       ]
     },
+    "public.domain": {
+      "name": "domain",
+      "schema": "public",
+      "values": [
+        "research",
+        "code",
+        "code_review",
+        "planning",
+        "review",
+        "ops",
+        "security",
+        "marketing"
+      ]
+    },
     "public.message_type": {
       "name": "message_type",
       "schema": "public",
       "values": [
-        "PLAN",
-        "PROPOSAL",
-        "EXEC_REPORT",
-        "REVIEW",
-        "BLOCKER"
+        "task.request",
+        "task.accept",
+        "task.progress",
+        "task.result",
+        "task.error",
+        "task.cancel",
+        "task.timeout",
+        "chat.message",
+        "chat.system",
+        "tool.call",
+        "tool.result",
+        "tool.error",
+        "agent.register",
+        "agent.heartbeat",
+        "agent.update",
+        "routing.decision",
+        "routing.failure"
       ]
     },
     "public.review_status": {
@@ -556,7 +1101,17 @@
         "running",
         "review",
         "rework",
-        "done"
+        "done",
+        "cancelled",
+        "failed"
+      ]
+    },
+    "public.trust_level": {
+      "name": "trust_level",
+      "schema": "public",
+      "values": [
+        "sandbox",
+        "prod"
       ]
     }
   },

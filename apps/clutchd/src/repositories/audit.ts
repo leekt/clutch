@@ -31,6 +31,22 @@ export const auditRepository = {
       .orderBy(desc(auditLogs.createdAt));
   },
 
+  async findByRunId(runId: string): Promise<AuditLog[]> {
+    return db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.runId, runId))
+      .orderBy(auditLogs.createdAt);
+  },
+
+  async findByTaskId(taskId: string): Promise<AuditLog[]> {
+    return db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.taskId, taskId))
+      .orderBy(auditLogs.createdAt);
+  },
+
   async findByAction(action: string): Promise<AuditLog[]> {
     return db
       .select()
@@ -43,10 +59,7 @@ export const auditRepository = {
     return db
       .select()
       .from(auditLogs)
-      .where(and(
-        gte(auditLogs.createdAt, startDate),
-        lte(auditLogs.createdAt, endDate)
-      ))
+      .where(and(gte(auditLogs.createdAt, startDate), lte(auditLogs.createdAt, endDate)))
       .orderBy(desc(auditLogs.createdAt));
   },
 
@@ -63,6 +76,8 @@ export const auditRepository = {
     options?: {
       agentId?: string;
       userId?: string;
+      runId?: string;
+      taskId?: string;
       details?: Record<string, unknown>;
       cost?: string;
       runtime?: number;
@@ -75,6 +90,8 @@ export const auditRepository = {
       entityId,
       agentId: options?.agentId,
       userId: options?.userId,
+      runId: options?.runId,
+      taskId: options?.taskId,
       details: options?.details ?? {},
       cost: options?.cost,
       runtime: options?.runtime,
