@@ -1,0 +1,90 @@
+# Workflow Definitions
+# Defines task flows, review chains, and state transitions
+
+workflows:
+  # Main product development workflow
+  - name: product-development
+    description: "End-to-end product development from idea to implementation"
+    trigger: manual
+
+    steps:
+      - id: research
+        name: "Market Research"
+        agent: research
+        action: research
+        output_type: PROPOSAL
+        next:
+          approved: marketing
+          rejected: research
+
+      - id: marketing
+        name: "Marketing Copy"
+        agent: marketing
+        action: create_copy
+        output_type: PROPOSAL
+        requires_review: true
+        reviewer: pm
+        next:
+          approved: development
+          rejected: marketing
+
+      - id: development
+        name: "Implementation"
+        agent: developer
+        action: implement
+        output_type: EXEC_REPORT
+        requires_review: true
+        reviewer: pm
+        next:
+          approved: done
+          rejected: development
+
+  # Simple research workflow
+  - name: research-only
+    description: "Standalone research task"
+    trigger: manual
+
+    steps:
+      - id: research
+        name: "Research"
+        agent: research
+        action: research
+        output_type: PROPOSAL
+        requires_review: true
+        reviewer: pm
+        next:
+          approved: done
+          rejected: research
+
+# State definitions
+states:
+  - name: created
+    description: "Task has been created but not assigned"
+
+  - name: assigned
+    description: "Task has been assigned to an agent"
+
+  - name: running
+    description: "Agent is actively working on the task"
+
+  - name: review
+    description: "Task output is pending review"
+
+  - name: rework
+    description: "Task was rejected and needs revision"
+
+  - name: done
+    description: "Task has been completed and approved"
+
+# Review policies
+review_policies:
+  default:
+    auto_approve: false
+    max_rework_cycles: 3
+    escalate_after: 2
+
+  fast_track:
+    auto_approve: true
+    conditions:
+      - cost_under: 1.00
+      - runtime_under: 60

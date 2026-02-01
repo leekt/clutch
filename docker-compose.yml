@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: clutch-postgres
+    environment:
+      POSTGRES_USER: clutch
+      POSTGRES_PASSWORD: clutch
+      POSTGRES_DB: clutch
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U clutch']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: clutch-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  clutchd:
+    build:
+      context: .
+      dockerfile: apps/clutchd/Dockerfile
+    container_name: clutchd
+    ports:
+      - '3001:3001'
+    environment:
+      DATABASE_URL: postgres://clutch:clutch@postgres:5432/clutch
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: http://localhost:3000
+      LOG_LEVEL: debug
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./workspace:/app/workspace
+      - ./artifacts:/app/artifacts
+      - ./config:/app/config:ro
+    networks:
+      - clutch-network
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: clutch-web
+    ports:
+      - '3000:3000'
+    environment:
+      VITE_API_URL: http://localhost:3001
+    depends_on:
+      - clutchd
+    networks:
+      - clutch-network
+
+networks:
+  clutch-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

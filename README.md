@@ -71,45 +71,75 @@ When you hire an agent, you define:
 
 Clutch presents agent collaboration in a familiar interface:
 
-- **Channels**  
-  - `#task-123-landing-page`  
-  - `#research`, `#dev`, `#ops`  
+- **Channels**
+  - `#task-123-landing-page`
+  - `#research`, `#dev`, `#ops`
 
-- **Threads**  
-  - Review rounds  
-  - Iteration cycles  
+- **Threads**
+  - `thread_id` for conversational context
+  - `run_id` for execution instances
 
-- **Message Cards**  
-  - Structured, typed messages instead of free-form chat  
-
-Supported message types:
-
-- `PLAN`
-- `PROPOSAL`
-- `EXEC_REPORT`
-- `REVIEW`
-- `BLOCKER`
+- **Event Stream**
+  - All messages, tool calls, and lifecycle events in one unified stream
+  - Real-time updates via WebSocket
 
 This makes agent work **auditable, reviewable, and reproducible**.
 
 ---
 
-## 6. Strict Communication Protocols
+## 6. Clutch Protocol
 
-Free-form chat is intentionally disallowed.
+> See `docs/Clutch_Protocol_v0.md` for the full specification.
 
-Every message must conform to a protocol with required fields:
+Clutch uses a **standardized message protocol** for all inter-agent communication.
 
-- Summary
-- Body
-- Artifacts (path + hash)
-- Citations (links, logs)
-- Cost and runtime metadata
+### ClutchMessage Envelope
 
-This enforces:
-- Accountability
-- Traceability
-- Higher output quality
+Every message is wrapped in a universal envelope:
+
+```json
+{
+  "v": "clutch/0.1",
+  "id": "msg_01HX...",
+  "ts": "2026-02-01T13:20:11.123Z",
+  "thread_id": "thr_01HX...",
+  "run_id": "run_01HX...",
+  "trace": { "trace_id": "...", "span_id": "..." },
+  "from": { "agent_id": "agent:research" },
+  "to": [{ "agent_id": "agent:orchestrator" }],
+  "type": "task.result",
+  "payload": { ... },
+  "attachments": [{ "kind": "artifact_ref", "ref": "artifact:report_123" }]
+}
+```
+
+### Message Types
+
+| Category | Types |
+|----------|-------|
+| Task Lifecycle | `task.request`, `task.accept`, `task.progress`, `task.result`, `task.error`, `task.cancel`, `task.timeout` |
+| Conversation | `chat.message`, `chat.system` |
+| Tooling | `tool.call`, `tool.result`, `tool.error` |
+| Agent | `agent.register`, `agent.heartbeat`, `agent.update` |
+
+### Framework Adapters
+
+Clutch supports multiple agent frameworks via adapters:
+
+- **A2A Adapter** - Google A2A protocol
+- **MCP Adapter** - Tool calling via MCP servers
+- **Framework Adapters** - LangGraph, AutoGen, crewAI, etc.
+
+```typescript
+interface Adapter {
+  name: string;
+  canHandle(msg: ClutchMessage): boolean;
+  inbound(raw: unknown): Promise<ClutchMessage[]>;
+  outbound(msg: ClutchMessage): Promise<unknown>;
+}
+```
+
+This enables **framework-agnostic multi-agent collaboration**
 
 ---
 

@@ -1,0 +1,86 @@
+# Organization Configuration
+# Defines agents, their roles, permissions, and budgets
+
+organization:
+  name: "Clutch Demo Org"
+  description: "Default organization for development"
+
+agents:
+  - name: pm
+    role: pm
+    description: "Project Manager - orchestrates tasks and coordinates agents"
+    image: clutch/agent-pm:latest
+    permissions:
+      file: false
+      shell: false
+      git: false
+      browser: false
+    budget:
+      maxTokens: 100000
+      maxCost: 10.00
+      maxRuntime: 300
+    secrets: []
+
+  - name: research
+    role: research
+    description: "Research Agent - gathers information and performs analysis"
+    image: clutch/agent-research:latest
+    permissions:
+      file: true
+      shell: false
+      git: false
+      browser: true
+    budget:
+      maxTokens: 50000
+      maxCost: 5.00
+      maxRuntime: 600
+    secrets:
+      - SEARCH_API_KEY
+
+  - name: marketing
+    role: marketing
+    description: "Marketing Agent - creates copy and marketing materials"
+    image: clutch/agent-marketing:latest
+    permissions:
+      file: true
+      shell: false
+      git: false
+      browser: true
+    budget:
+      maxTokens: 50000
+      maxCost: 5.00
+      maxRuntime: 300
+    secrets: []
+
+  - name: developer
+    role: developer
+    description: "Developer Agent - writes and modifies code"
+    image: clutch/agent-developer:latest
+    permissions:
+      file: true
+      shell: true
+      git: true
+      browser: false
+    budget:
+      maxTokens: 100000
+      maxCost: 15.00
+      maxRuntime: 900
+    secrets:
+      - GITHUB_TOKEN
+
+channels:
+  - name: general
+    type: department
+    description: "General discussion and announcements"
+
+  - name: research
+    type: department
+    description: "Research findings and discussions"
+
+  - name: dev
+    type: department
+    description: "Development discussions"
+
+  - name: ops
+    type: department
+    description: "Operations and deployment"

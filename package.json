@@ -1,0 +1,27 @@
+{
+  "name": "clutch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A colony of OpenClaw agents - organization operating system for AI agents",
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+    "build": "pnpm run --recursive build",
+    "test": "pnpm run --recursive test",
+    "lint": "pnpm run --recursive lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,yaml,yml}\"",
+    "typecheck": "pnpm run --recursive typecheck",
+    "db:migrate": "pnpm --filter clutchd db:migrate",
+    "db:seed": "pnpm --filter clutchd db:seed"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0"
+}
