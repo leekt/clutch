@@ -424,6 +424,7 @@ Legacy message types map to protocol types:
 | 2026-02-01 | Added Phase 2.5 (Clutch Protocol Implementation) as priority - protocol spec reviewed, docs updated | Claude |
 | 2026-02-01 | Refined Clutch Protocol v0 - added task hierarchy, schema registry, capability matching, delivery semantics | Claude |
 | 2026-02-01 | Created packages/protocol, packages/core, packages/adapters implementing Clutch Protocol v0 | Claude |
+| 2026-02-01 | Added A2A and MCP comparison section to Clutch Protocol docs and README | Claude |
 
 ---
 

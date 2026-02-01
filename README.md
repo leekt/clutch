@@ -126,9 +126,28 @@ Every message is wrapped in a universal envelope:
 
 Clutch supports multiple agent frameworks via adapters:
 
-- **A2A Adapter** - Google A2A protocol
+- **A2A Adapter** - Google A2A protocol for external agent communication
 - **MCP Adapter** - Tool calling via MCP servers
 - **Framework Adapters** - LangGraph, AutoGen, crewAI, etc.
+
+### Why Not Just A2A or MCP?
+
+Clutch Protocol is **complementary** to A2A and MCP:
+
+| Protocol | Purpose |
+|----------|---------|
+| **MCP** | Agent ↔ Tool (tool calling) |
+| **A2A** | Agent ↔ Agent (federated discovery) |
+| **Clutch** | Multi-agent orchestration (internal coordination) |
+
+**What Clutch adds:**
+- **Unified Event Stream** - Every message, tool call, and routing decision is observable
+- **Task Hierarchy** - `run_id` → `task_id` → subtasks with partial retry
+- **Schema Registry** - Structured payloads prevent unstructured "prompt soup"
+- **Centralized Routing** - Router assigns agents with observable `routing.decision` events
+- **Audit & Replay** - Append-only event store for debugging and reproducibility
+
+> See `docs/Clutch_Protocol_v0.md` for the full comparison and specification.
 
 ```typescript
 interface Adapter {

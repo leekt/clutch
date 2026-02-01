@@ -18,6 +18,73 @@ A lightweight, framework-agnostic protocol for building interoperable multi-agen
 
 ---
 
+## Comparison with A2A and MCP
+
+Clutch Protocol is **complementary** to A2A and MCP, not a replacement. Each protocol solves a different problem:
+
+| Protocol | Primary Purpose | Scope |
+|----------|----------------|-------|
+| **MCP** (Model Context Protocol) | Tool calling | Agent ↔ Tool |
+| **A2A** (Agent-to-Agent) | Agent discovery & interop | Agent ↔ Agent (federated) |
+| **Clutch Protocol** | Multi-agent orchestration | Agent coordination (centralized) |
+
+### vs. A2A (Google Agent-to-Agent)
+
+A2A enables agents from **different organizations** to discover and communicate with each other via `.well-known/agent.json`. It's designed for the open web.
+
+Clutch Protocol is designed for **orchestrating agents within a controlled environment** - running multiple agents as a coordinated team.
+
+| Aspect | A2A | Clutch Protocol |
+|--------|-----|-----------------|
+| Use case | Open agent federation | Internal multi-agent orchestration |
+| Discovery | Decentralized (`.well-known`) | Centralized registry |
+| Task hierarchy | Not specified | `run_id` → `task_id` → `parent_task_id` |
+| Structured outputs | Not enforced | Schema registry with `payload_type` |
+| Routing decisions | Agent-side | Centralized with `routing.decision` events |
+| Audit trail | Not built-in | Append-only event store |
+| Capability matching | Agent advertises, caller decides | Router matches `requires[]`/`prefers[]` |
+| Budget/limits | Not specified | Built into AgentCard, enforced |
+
+**Relationship**: Clutch uses A2A as an **adapter** for external agent communication. Internal agents use Clutch Protocol; external A2A agents are accessed via the A2A adapter.
+
+### vs. MCP (Model Context Protocol)
+
+MCP standardizes how agents call **tools** (file systems, databases, APIs). It's the interface between an agent and its capabilities.
+
+Clutch Protocol standardizes how **agents communicate with each other** and how an orchestrator manages them.
+
+| Aspect | MCP | Clutch Protocol |
+|--------|-----|-----------------|
+| Use case | Tool invocation | Agent-to-agent messaging |
+| Scope | Single agent's tools | Multi-agent coordination |
+| Message types | `tools/call`, `tools/list` | `task.*`, `chat.*`, `tool.*`, `agent.*`, `routing.*` |
+| State management | Stateless RPC | Event-sourced (append-only) |
+| Observability | Per-call | Full event stream |
+
+**Relationship**: Clutch wraps MCP tool calls in `tool.call`/`tool.result` messages. The MCP adapter translates between Clutch Protocol and MCP servers.
+
+### When to Use What
+
+| Scenario | Protocol |
+|----------|----------|
+| Agent needs to call a tool (database, API, filesystem) | **MCP** |
+| Agent needs to talk to an external agent from another org | **A2A** |
+| Orchestrating multiple agents as a team internally | **Clutch Protocol** |
+| All of the above | Clutch Protocol + MCP adapter + A2A adapter |
+
+### What Clutch Protocol Adds
+
+The core value is the **operational layer** for multi-agent systems:
+
+1. **Unified Event Stream** - Every message, tool call, routing decision, and state change is an observable event
+2. **Structured Contracts** - `domain` + `payload_type` + schema registry prevents unstructured "prompt soup"
+3. **Task DAGs** - Hierarchical task tracking (`run_id` → `task_id` → subtasks) with partial retry
+4. **Centralized Routing** - Router decides agent assignment with observable `routing.decision` events
+5. **Framework Agnostic** - Adapters normalize LangGraph, AutoGen, crewAI, MCP, A2A into one protocol
+6. **Audit & Replay** - Append-only event store enables debugging and reproducibility
+
+---
+
 ## 1. Core Concepts
 
 ### 1.1 Envelope (ClutchMessage)
