@@ -10,6 +10,8 @@ agents:
     role: pm
     description: "Project Manager - orchestrates tasks and coordinates agents"
     image: clutch/agent-pm:latest
+    runtime:
+      type: in-process
 
     # AgentSpec: Personality
     personality:
@@ -60,6 +62,8 @@ agents:
     role: research
     description: "Research Agent - gathers information and performs analysis"
     image: clutch/agent-research:latest
+    runtime:
+      type: in-process
 
     # AgentSpec: Personality
     personality:
@@ -111,6 +115,8 @@ agents:
     role: marketing
     description: "Marketing Agent - creates copy and marketing materials"
     image: clutch/agent-marketing:latest
+    runtime:
+      type: in-process
 
     # AgentSpec: Personality
     personality:
@@ -161,6 +167,8 @@ agents:
     role: developer
     description: "Developer Agent - writes and modifies code"
     image: clutch/agent-developer:latest
+    runtime:
+      type: in-process
 
     # AgentSpec: Personality
     personality:
@@ -213,6 +221,8 @@ agents:
     role: qa
     description: "QA Agent - tests and validates work"
     image: clutch/agent-qa:latest
+    runtime:
+      type: in-process
 
     # AgentSpec: Personality
     personality:

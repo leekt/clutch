@@ -1,6 +1,11 @@
 import { readFile } from 'fs/promises';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
 import type { ClutchMessage } from '@clutch/protocol';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(__dirname, '..', '..', '..', '..');
 import { generateTaskId } from '@clutch/protocol';
 import { parse } from 'yaml';
 import { z } from 'zod';
@@ -79,7 +84,7 @@ export class WorkflowEngine {
   private config: WorkflowsConfig | null = null;
   private executions: Map<string, WorkflowExecution> = new Map();
 
-  async loadConfig(configPath: string = 'config/workflows.yaml'): Promise<void> {
+  async loadConfig(configPath: string = resolve(PROJECT_ROOT, 'config/workflows.yaml')): Promise<void> {
     try {
       const content = await readFile(configPath, 'utf-8');
       const parsed = parse(content);

@@ -1,66 +1,136 @@
 import {
-  DeveloperAgent,
-  MarketingAgent,
-  PMAgent,
-  ResearchAgent,
+  createRuntime,
   type AgentContext,
-  type BaseAgent,
+  type AgentRuntime,
+  type RuntimeConfig,
   type TaskDispatch,
   type TaskResult,
 } from '@clutch/agents';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
 import { logger } from '../logger.js';
 import { pubsub } from '../queue/index.js';
 import { agentRepository } from '../repositories/index.js';
 
 import { agentMemoryService } from './agent-memory.js';
+import { secretStore } from './secret-store.js';
 
 /**
  * Agent Executor Service
  *
- * Bridges the control plane with actual agent implementations.
- * Routes tasks to the appropriate agent based on role and handles
- * execution lifecycle including memory management.
+ * Bridges the control plane with agent runtimes.
+ * Uses the AgentRuntime abstraction to support in-process, HTTP, and subprocess agents.
  */
 export class AgentExecutorService {
-  private agents: Map<string, BaseAgent> = new Map();
+  private runtimes: Map<string, AgentRuntime> = new Map();
   private initialized = false;
+  private projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
-  constructor() {
-    // Initialize agent instances
-    this.agents.set('pm', new PMAgent('agent:pm'));
-    this.agents.set('research', new ResearchAgent('agent:research'));
-    this.agents.set('marketing', new MarketingAgent('agent:marketing'));
-    this.agents.set('developer', new DeveloperAgent('agent:developer', {
-      workspaceRoot: process.env.WORKSPACE_ROOT || process.cwd(),
-      allowShell: process.env.ALLOW_SHELL === 'true',
-      allowGit: process.env.ALLOW_GIT === 'true',
-    }));
+  private normalizeRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
+    if (config.type !== 'subprocess') {
+      return config;
+    }
+
+    if (!config.cwd) {
+      return { ...config, cwd: this.projectRoot };
+    }
+
+    return config;
+  }
+
+  private async resolveRuntimeSecrets(config: RuntimeConfig): Promise<RuntimeConfig> {
+    if (config.type === 'http') {
+      const httpConfig = config as RuntimeConfig & { authTokenSecret?: string };
+      if (httpConfig.authTokenSecret) {
+        const token = await secretStore.getSecret(httpConfig.authTokenSecret);
+        return { ...config, authToken: token };
+      }
+      return config;
+    }
+
+    if (config.type === 'subprocess') {
+      const subConfig = config as RuntimeConfig & { envSecrets?: Record<string, string> };
+      if (subConfig.envSecrets && Object.keys(subConfig.envSecrets).length > 0) {
+        const secretEnv = await secretStore.resolveEnvSecrets(subConfig.envSecrets);
+        return {
+          ...config,
+          env: { ...(config.env ?? {}), ...secretEnv },
+        };
+      }
+    }
+
+    return config;
   }
 
   /**
-   * Initialize the executor service
+   * Initialize the executor service.
+   * Loads all agents from the database and creates runtimes for each.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    // Set up event listeners for all agents
-    for (const [role, agent] of this.agents) {
-      agent.on('progress', (update) => {
-        this.handleProgress(role, update);
-      });
+    const agents = await agentRepository.findAll();
 
-      agent.on('tool_call', (call) => {
-        this.handleToolCall(role, call);
-      });
+    for (const agent of agents) {
+      try {
+        const runtimeConfig: RuntimeConfig = (agent.runtime as RuntimeConfig) ?? { type: 'in-process' };
+        const normalized = this.normalizeRuntimeConfig(runtimeConfig);
+        const resolved = await this.resolveRuntimeSecrets(normalized);
+        const runtime = createRuntime(agent.name, resolved);
+
+        // Wire up event forwarding
+        runtime.onProgress?.((update) => {
+          this.handleProgress(agent.name, update);
+        });
+
+        runtime.onToolCall?.((call) => {
+          this.handleToolCall(agent.name, call);
+        });
+
+        await runtime.initialize();
+        this.runtimes.set(agent.name, runtime);
+      } catch (error) {
+        logger.warn({ agentName: agent.name, error }, 'Failed to initialize runtime (agent will be unavailable)');
+      }
     }
 
     this.initialized = true;
-    logger.info({ agentCount: this.agents.size }, 'Agent executor initialized');
+    logger.info({ runtimeCount: this.runtimes.size }, 'Agent executor initialized');
   }
 
   /**
-   * Execute a task using the appropriate agent
+   * Ensure a runtime exists for an agent, creating it on-demand if needed.
+   */
+  private async ensureRuntime(agentName: string, runtimeConfig?: unknown): Promise<AgentRuntime | undefined> {
+    let runtime = this.runtimes.get(agentName);
+    if (runtime) return runtime;
+
+    // Try to create on-demand
+    try {
+      const config: RuntimeConfig = (runtimeConfig as RuntimeConfig) ?? { type: 'in-process' };
+      const normalized = this.normalizeRuntimeConfig(config);
+      const resolved = await this.resolveRuntimeSecrets(normalized);
+      runtime = createRuntime(agentName, resolved);
+
+      runtime.onProgress?.((update) => {
+        this.handleProgress(agentName, update);
+      });
+      runtime.onToolCall?.((call) => {
+        this.handleToolCall(agentName, call);
+      });
+
+      await runtime.initialize();
+      this.runtimes.set(agentName, runtime);
+      return runtime;
+    } catch (error) {
+      logger.error({ agentName, error }, 'Failed to create runtime on-demand');
+      return undefined;
+    }
+  }
+
+  /**
+   * Execute a task using the appropriate agent runtime.
    */
   async executeTask(
     agentId: string,
@@ -96,23 +166,23 @@ export class AgentExecutorService {
       };
     }
 
-    // Get the agent executor by role
-    const agent = this.agents.get(agentRecord.role);
-    if (!agent) {
-      log.error({ role: agentRecord.role }, 'No executor for agent role');
+    // Get or create the runtime
+    const runtime = await this.ensureRuntime(agentRecord.name, agentRecord.runtime);
+    if (!runtime) {
+      log.error({ name: agentRecord.name }, 'No runtime for agent');
       return {
         taskId: taskPayload.taskId,
         success: false,
         error: {
-          code: 'NO_EXECUTOR',
-          message: `No executor available for role: ${agentRecord.role}`,
+          code: 'NO_RUNTIME',
+          message: `No runtime available for agent: ${agentRecord.name}`,
           retryable: false,
         },
         usage: { cost: 0, runtime: 0, tokens: 0 },
       };
     }
 
-    log.info({ role: agentRecord.role, action: taskPayload.action }, 'Starting agent execution');
+    log.info({ name: agentRecord.name, runtimeType: runtime.type, action: taskPayload.action }, 'Starting agent execution');
 
     // Build task dispatch
     const dispatch: TaskDispatch = {
@@ -155,12 +225,12 @@ export class AgentExecutorService {
     // Execute the task
     const startTime = Date.now();
     try {
-      const result = await agent.execute(dispatch, context);
+      const result = await runtime.execute(dispatch, context);
 
-      const runtime = Date.now() - startTime;
+      const elapsed = Date.now() - startTime;
       log.info({
         success: result.success,
-        runtime,
+        runtime: elapsed,
         tokens: result.usage.tokens,
         cost: result.usage.cost,
       }, 'Agent execution complete');
@@ -180,8 +250,8 @@ export class AgentExecutorService {
 
       return result;
     } catch (error) {
-      const runtime = Date.now() - startTime;
-      log.error({ error, runtime }, 'Agent execution failed');
+      const elapsed = Date.now() - startTime;
+      log.error({ error, runtime: elapsed }, 'Agent execution failed');
 
       return {
         taskId: taskPayload.taskId,
@@ -191,26 +261,25 @@ export class AgentExecutorService {
           message: (error as Error).message,
           retryable: true,
         },
-        usage: { cost: 0, runtime, tokens: 0 },
+        usage: { cost: 0, runtime: elapsed, tokens: 0 },
       };
     }
   }
 
   /**
-   * Handle progress updates from agents
+   * Handle progress updates from runtimes
    */
   private handleProgress(
-    role: string,
+    agentName: string,
     update: { taskId: string; progress: number; message?: string }
   ): void {
     logger.debug({
-      role,
+      agentName,
       taskId: update.taskId,
       progress: update.progress,
       message: update.message,
     }, 'Agent progress');
 
-    // Publish progress update
     pubsub.publishTaskUpdate(update.taskId, 'progress', {
       progress: update.progress,
       message: update.message,
@@ -220,20 +289,18 @@ export class AgentExecutorService {
   }
 
   /**
-   * Handle tool calls from agents (for auditing)
+   * Handle tool calls from runtimes (for auditing)
    */
   private handleToolCall(
-    role: string,
+    agentName: string,
     call: { taskId: string; tool: string; input: unknown; output: unknown; timestamp: string }
   ): void {
     logger.debug({
-      role,
+      agentName,
       taskId: call.taskId,
       tool: call.tool,
     }, 'Agent tool call');
 
-    // Could store in audit log
-    // For now, just publish as an event
     pubsub.publishMessageUpdate(call.taskId, 'tool_call', {
       tool: call.tool,
       timestamp: call.timestamp,
@@ -312,7 +379,6 @@ ${memory.notes}`;
 
     if (!memoryUpdates) return;
 
-    // Update working memory with notes
     if (memoryUpdates.workingNotes) {
       try {
         await agentMemoryService.addProgress(agentId, memoryUpdates.workingNotes);
@@ -321,7 +387,6 @@ ${memory.notes}`;
       }
     }
 
-    // Add domain knowledge to long-term memory
     if (memoryUpdates.domainKnowledge?.length) {
       for (const knowledge of memoryUpdates.domainKnowledge) {
         try {
@@ -360,12 +425,10 @@ ${memory.notes}`;
       subtaskCount: subtasks.length,
     }, 'Creating subtasks from PM decomposition');
 
-    // Import messageBus here to avoid circular dependency
     const { messageBus } = await import('./message-bus.js');
 
     for (const subtask of subtasks) {
       try {
-        // Create a task.request message for each subtask
         await messageBus.publish({
           thread_id: parentTask.threadId,
           run_id: parentTask.runId,
@@ -395,29 +458,34 @@ ${memory.notes}`;
   }
 
   /**
-   * Get agent by role
+   * Get runtime for an agent by name
    */
-  getAgent(role: string): BaseAgent | undefined {
-    return this.agents.get(role);
+  getRuntime(agentName: string): AgentRuntime | undefined {
+    return this.runtimes.get(agentName);
   }
 
   /**
-   * Get all agent capabilities
+   * Get agent health via its runtime
    */
-  getAllCapabilities(): Record<string, Array<{ id: string; version?: string; tags?: string[] }>> {
-    const capabilities: Record<string, Array<{ id: string; version?: string; tags?: string[] }>> = {};
-    for (const [role, agent] of this.agents) {
-      capabilities[role] = agent.getCapabilities();
+  async getAgentHealth(agentName: string): Promise<{ healthy: boolean; details?: Record<string, unknown> } | undefined> {
+    const runtime = this.runtimes.get(agentName);
+    if (!runtime) return undefined;
+    return runtime.getHealth();
+  }
+
+  /**
+   * Gracefully shut down all runtimes
+   */
+  async shutdown(): Promise<void> {
+    for (const [name, runtime] of this.runtimes) {
+      try {
+        await runtime.shutdown();
+      } catch (error) {
+        logger.warn({ agentName: name, error }, 'Error shutting down runtime');
+      }
     }
-    return capabilities;
-  }
-
-  /**
-   * Get agent health
-   */
-  getAgentHealth(role: string): { healthy: boolean; currentTask?: string; runtime?: number } | undefined {
-    const agent = this.agents.get(role);
-    return agent?.getHealth();
+    this.runtimes.clear();
+    this.initialized = false;
   }
 }
 

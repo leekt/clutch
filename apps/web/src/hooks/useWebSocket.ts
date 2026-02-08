@@ -17,10 +17,6 @@ interface UseWebSocketOptions {
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
   const {
-    onMessage,
-    onConnect,
-    onDisconnect,
-    onError,
     reconnect = true,
     reconnectInterval = 3000,
     maxReconnectAttempts = 10,
@@ -29,12 +25,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  // Use refs for callbacks to avoid re-triggering the effect
+  const onMessageRef = useRef(options.onMessage);
+  const onConnectRef = useRef(options.onConnect);
+  const onDisconnectRef = useRef(options.onDisconnect);
+  const onErrorRef = useRef(options.onError);
+
+  onMessageRef.current = options.onMessage;
+  onConnectRef.current = options.onConnect;
+  onDisconnectRef.current = options.onDisconnect;
+  onErrorRef.current = options.onError;
 
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [lastMessage, setLastMessage] = useState<WSEvent | null>(null);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (!mountedRef.current) return;
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
       return;
     }
 
@@ -44,17 +53,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       const ws = new WebSocket(WS_URL);
 
       ws.onopen = () => {
+        if (!mountedRef.current) { ws.close(); return; }
         setConnectionState('connected');
         reconnectAttempts.current = 0;
-        onConnect?.();
+        onConnectRef.current?.();
       };
 
       ws.onclose = () => {
+        if (!mountedRef.current) return;
         setConnectionState('disconnected');
-        onDisconnect?.();
+        onDisconnectRef.current?.();
 
         // Attempt reconnect
-        if (reconnect && reconnectAttempts.current < maxReconnectAttempts) {
+        if (reconnect && reconnectAttempts.current < maxReconnectAttempts && mountedRef.current) {
           reconnectAttempts.current++;
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
@@ -63,15 +74,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       };
 
       ws.onerror = (error) => {
+        if (!mountedRef.current) return;
         setConnectionState('error');
-        onError?.(error);
+        onErrorRef.current?.(error);
       };
 
       ws.onmessage = (event) => {
+        if (!mountedRef.current) return;
         try {
           const data = JSON.parse(event.data) as WSEvent;
           setLastMessage(data);
-          onMessage?.(data);
+          onMessageRef.current?.(data);
         } catch {
           console.error('Failed to parse WebSocket message:', event.data);
         }
@@ -82,7 +95,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       setConnectionState('error');
       console.error('Failed to create WebSocket connection:', error);
     }
-  }, [onMessage, onConnect, onDisconnect, onError, reconnect, reconnectInterval, maxReconnectAttempts]);
+  }, [reconnect, reconnectInterval, maxReconnectAttempts]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -114,11 +127,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     send({ type: 'unsubscribe', channels });
   }, [send]);
 
-  // Auto-connect on mount
+  // Auto-connect on mount, disconnect on unmount
   useEffect(() => {
+    mountedRef.current = true;
     connect();
 
     return () => {
+      mountedRef.current = false;
       disconnect();
     };
   }, [connect, disconnect]);
@@ -140,10 +155,13 @@ export function useTaskUpdates(
   taskId: string | undefined,
   onUpdate: (data: Record<string, unknown>) => void
 ) {
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
   const { subscribe, unsubscribe, lastMessage, isConnected } = useWebSocket({
     onMessage: (event) => {
       if (event.type === 'task_update' && event.taskId === taskId) {
-        onUpdate(event.data || {});
+        onUpdateRef.current(event.data || {});
       }
     },
   });
@@ -163,10 +181,13 @@ export function useMessageUpdates(
   runId: string | undefined,
   onUpdate: (data: Record<string, unknown>) => void
 ) {
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
   const { subscribe, unsubscribe, lastMessage, isConnected } = useWebSocket({
     onMessage: (event) => {
       if (event.type === 'message_update') {
-        onUpdate(event.data || {});
+        onUpdateRef.current(event.data || {});
       }
     },
   });
@@ -186,10 +207,13 @@ export function useAgentStatus(
   agentId: string | undefined,
   onUpdate: (status: string, details?: Record<string, unknown>) => void
 ) {
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
   const { subscribe, unsubscribe, lastMessage, isConnected } = useWebSocket({
     onMessage: (event) => {
       if (event.type === 'agent_status' && event.agentId === agentId) {
-        onUpdate(event.status, event.details);
+        onUpdateRef.current(event.status, event.details);
       }
     },
   });

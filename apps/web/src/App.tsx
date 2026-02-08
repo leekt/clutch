@@ -4,8 +4,9 @@ import { Layout } from './components/Layout';
 import { ChannelView } from './components/ChannelView';
 import { TasksView } from './components/TasksView';
 import { AgentsView } from './components/AgentsView';
+import { ColonyView } from './components/colony/ColonyView';
 import { TaskDetailPanel } from './components/TaskDetailPanel';
-import { useStore } from './store';
+import { useStore, selectAgentsList } from './store';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,6 +17,15 @@ const queryClient = new QueryClient({
   },
 });
 
+function DefaultRoute() {
+  const agents = useStore(selectAgentsList);
+  // If no agents exist, send to /agents for onboarding; otherwise go to general channel
+  if (agents.length === 0) {
+    return <Navigate to="/agents" replace />;
+  }
+  return <Navigate to="/channels/general" replace />;
+}
+
 function AppContent() {
   const { rightPanelOpen, rightPanelView, selectedTaskId } = useStore();
 
@@ -23,12 +33,13 @@ function AppContent() {
     <div className="flex h-screen bg-gray-900 text-gray-100">
       <Layout>
         <Routes>
-          <Route path="/" element={<Navigate to="/channels/general" replace />} />
+          <Route path="/" element={<DefaultRoute />} />
           <Route path="/channels/:channelId" element={<ChannelView />} />
           <Route path="/tasks" element={<TasksView />} />
           <Route path="/tasks/:taskId" element={<TasksView />} />
           <Route path="/agents" element={<AgentsView />} />
           <Route path="/agents/:agentId" element={<AgentsView />} />
+          <Route path="/colony" element={<ColonyView />} />
         </Routes>
       </Layout>
 

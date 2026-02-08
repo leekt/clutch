@@ -147,6 +147,20 @@ export const agents = pgTable('agents', {
     long_term_summary?: 'daily' | 'weekly' | 'on-demand';
   }>(),
 
+  // Runtime configuration (how the agent is executed)
+  runtime: jsonb('runtime').$type<{
+    type: 'in-process' | 'http' | 'subprocess';
+    url?: string;
+    authToken?: string;
+    timeoutMs?: number;
+    healthPath?: string;
+    command?: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    protocol?: 'stdio' | 'http';
+  }>(),
+
   // === Lifecycle State (Organization OS) ===
 
   // Current lifecycle state

@@ -6,6 +6,7 @@ import { logger } from './logger.js';
 import { correlationMiddleware, correlationStorage } from './middleware/index.js';
 import { registerRoutes } from './routes/index.js';
 import { agentRegistry, workflowEngine, messageBus } from './services/index.js';
+import { oauthService } from './services/oauth.js';
 import { redis, pubsub, CHANNELS, closeQueue } from './queue/index.js';
 
 const app = Fastify({
@@ -177,6 +178,26 @@ async function start() {
     await setupPubSubForwarding();
     await app.listen({ port: config.port, host: '0.0.0.0' });
     logger.info(`clutchd running on http://0.0.0.0:${config.port}`);
+    const callbackServer = Fastify({ logger: false });
+    callbackServer.get('/auth/callback', async (request, reply) => {
+      const query = request.query as { code?: string; state?: string; error?: string };
+      if (query.state) {
+        oauthService.recordCallback(query.state, query.code, query.error);
+      }
+      return reply
+        .type('text/html')
+        .send('<html><body><h3>Authentication complete. You can close this window.</h3></body></html>');
+    });
+
+    try {
+      await callbackServer.listen({ port: 1455, host: '127.0.0.1' });
+      logger.info('Codex OAuth callback server running on http://127.0.0.1:1455/auth/callback');
+
+      process.on('SIGTERM', () => callbackServer.close().catch(() => undefined));
+      process.on('SIGINT', () => callbackServer.close().catch(() => undefined));
+    } catch (error) {
+      logger.warn({ error }, 'Codex OAuth callback server failed to start; continuing without local callback');
+    }
   } catch (err) {
     logger.error(err, 'Failed to start server');
     process.exit(1);

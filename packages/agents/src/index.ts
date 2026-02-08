@@ -1,8 +1,11 @@
 // Types
-export * from './types.js';
+export type * from './types.js';
 
 // Executor framework
 export * from './executor/index.js';
+
+// Runtime abstraction
+export * from './runtime/index.js';
 
 // Agent implementations
 export { PMAgent, pmAgent } from './agents/pm.js';

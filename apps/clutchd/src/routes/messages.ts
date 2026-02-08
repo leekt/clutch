@@ -56,16 +56,27 @@ const createMessageSchema = z.object({
 });
 
 export async function messageRoutes(app: FastifyInstance) {
-  // List messages in a channel
+  // List messages in a channel (supports UUID or channel name)
   app.get<{ Params: { channelId: string } }>('/api/channels/:channelId/messages', async (request, reply) => {
     const query = request.query as { threadId?: string; limit?: string };
     const limit = query.limit ? parseInt(query.limit, 10) : 50;
+
+    // Resolve channel ID (could be UUID or name)
+    let channelId = request.params.channelId;
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId);
+    const channel = isUUID ? await channelRepository.findById(channelId) : undefined;
+    if (!channel) {
+      const byName = await channelRepository.findByName(channelId);
+      if (byName) {
+        channelId = byName.id;
+      }
+    }
 
     let messages;
     if (query.threadId) {
       messages = await messageRepository.findByThreadId(query.threadId);
     } else {
-      messages = await messageRepository.findByChannel(request.params.channelId, limit);
+      messages = await messageRepository.findByChannel(channelId, limit);
     }
 
     return reply.send({ messages });

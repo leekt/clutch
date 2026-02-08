@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { clsx } from 'clsx';
-import { useAgents } from '../hooks/useQueries';
+import { useAgents, useDeleteAgent } from '../hooks/useQueries';
 import { useStore, selectAgentsList } from '../store';
+import { HireAgentModal } from './HireAgentModal';
 import type { Agent, AgentStatus, AgentLifecycleState } from '../types';
 
 const statusConfig: Record<AgentStatus, { label: string; color: string; bgColor: string }> = {
@@ -52,10 +53,29 @@ const roleColors: Record<string, string> = {
 
 export function AgentsView() {
   const { agentId } = useParams<{ agentId: string }>();
+  const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<AgentStatus | 'all'>('all');
+  const [showHireModal, setShowHireModal] = useState(false);
 
   const { isLoading } = useAgents();
   const agents = useStore(selectAgentsList);
+  const deleteAgent = useDeleteAgent();
+
+  const handleFireAgent = (agent: Agent) => {
+    deleteAgent.mutate(agent.id, {
+      onSuccess: () => {
+        navigate('/agents', { replace: true });
+      },
+    });
+  };
+
+  // Auto-open hire modal when there are no agents (onboarding)
+  const hasNoAgents = !isLoading && agents.length === 0;
+  useEffect(() => {
+    if (hasNoAgents) {
+      setShowHireModal(true);
+    }
+  }, [hasNoAgents]);
 
   const filteredAgents = agents.filter((agent) => {
     if (statusFilter === 'all') return true;
@@ -86,6 +106,12 @@ export function AgentsView() {
               {filteredAgents.length} agent{filteredAgents.length !== 1 ? 's' : ''}
             </span>
           </div>
+          <button
+            onClick={() => setShowHireModal(true)}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm text-white"
+          >
+            + Hire Agent
+          </button>
         </header>
 
         {/* Filters */}
@@ -110,7 +136,20 @@ export function AgentsView() {
         <div className="flex-1 overflow-y-auto">
           {filteredAgents.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-500">
-              <p className="text-lg mb-2">No agents found</p>
+              {hasNoAgents ? (
+                <>
+                  <h2 className="text-2xl font-semibold text-gray-200 mb-2">Welcome to Clutch</h2>
+                  <p className="text-gray-400 mb-6">Hire your first agent to get started.</p>
+                  <button
+                    onClick={() => setShowHireModal(true)}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-medium"
+                  >
+                    Hire Your First Agent
+                  </button>
+                </>
+              ) : (
+                <p className="text-lg mb-2">No agents match this filter</p>
+              )}
             </div>
           ) : (
             <div className="divide-y divide-gray-700">
@@ -127,7 +166,19 @@ export function AgentsView() {
       </div>
 
       {/* Agent detail panel */}
-      {selectedAgent && <AgentDetailPanel agent={selectedAgent} />}
+      {selectedAgent && <AgentDetailPanel agent={selectedAgent} onFire={handleFireAgent} />}
+
+      {/* Hire agent modal */}
+      {showHireModal && (
+        <HireAgentModal
+          onClose={() => {
+            // Only allow closing if at least one agent exists
+            if (agents.length > 0) {
+              setShowHireModal(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -216,9 +267,11 @@ function AgentRow({ agent, isSelected }: AgentRowProps) {
 
 interface AgentDetailPanelProps {
   agent: Agent;
+  onFire: (agent: Agent) => void;
 }
 
-function AgentDetailPanel({ agent }: AgentDetailPanelProps) {
+function AgentDetailPanel({ agent, onFire }: AgentDetailPanelProps) {
+  const [confirmFire, setConfirmFire] = useState(false);
   const config = statusConfig[agent.status];
   const lifecycle = agent.lifecycleState ? lifecycleConfig[agent.lifecycleState] : null;
 
@@ -242,7 +295,7 @@ function AgentDetailPanel({ agent }: AgentDetailPanelProps) {
               </span>
             )}
           </div>
-          <div>
+          <div className="flex-1">
             <h3 className="text-lg font-semibold">{agent.name}</h3>
             <p className="text-sm text-gray-400 capitalize">{agent.role}</p>
           </div>
@@ -450,9 +503,39 @@ function AgentDetailPanel({ agent }: AgentDetailPanelProps) {
       )}
 
       {/* ID */}
-      <div className="px-4 py-3">
+      <div className="px-4 py-3 border-b border-gray-700">
         <h4 className="text-sm font-medium text-gray-400 mb-1">Agent ID</h4>
         <code className="text-xs text-gray-500 font-mono">{agent.agentId}</code>
+      </div>
+
+      {/* Fire agent */}
+      <div className="px-4 py-3 mt-auto">
+        {confirmFire ? (
+          <div className="space-y-2">
+            <p className="text-sm text-red-400">Fire {agent.name}? This cannot be undone.</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => onFire(agent)}
+                className="flex-1 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded text-sm text-white"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmFire(false)}
+                className="flex-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmFire(true)}
+            className="w-full px-3 py-1.5 bg-gray-800 hover:bg-red-900/50 border border-gray-700 hover:border-red-700 rounded text-sm text-gray-400 hover:text-red-400 transition-colors"
+          >
+            Fire Agent
+          </button>
+        )}
       </div>
     </aside>
   );

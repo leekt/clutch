@@ -6,7 +6,18 @@ Current priorities and next steps for Clutch.
 
 ---
 
-## P0: Agent Runtime Abstraction
+## P0: Clutch Runtime Compliance (Spec v0)
+
+Bring core runtime and governance in line with the "Agent Organization Runtime" spec.
+
+- [ ] **Shared state layers** — Add explicit `org_state`, `project_state`, `agent_state` stores; document derivation from events
+- [ ] **Append-only event log** — Enforce write-once event store; add event schema with `cost`, `refs`, `actor_agent_id`
+- [ ] **Required event types** — Emit: TASK_CREATED/ASSIGNED, ARTIFACT_PRODUCED, TEST_RUN, PR_OPENED, REVIEW_COMMENTED, MERGE_APPROVED/BLOCKED, EVAL_REPORTED, HIRING/FIRING_PROPOSAL, DECISION_RECORDED, BUDGET_UPDATED
+- [ ] **Role-based gates** — Enforce Junior→Senior review gates and Senior-only merge approvals
+- [ ] **Runtime interface** — Implement `pull()/run()/push()` contract for all runtimes (in-process, http, subprocess)
+- [ ] **Cost accounting** — Standardize token/compute cost fields on all events and rollups
+
+## P0: Agent Runtime Abstraction (Internal)
 
 The biggest architectural gap. `AgentExecutorService` hardcodes 4 in-process agents with no isolation or pluggability.
 
@@ -20,6 +31,19 @@ The biggest architectural gap. `AgentExecutorService` hardcodes 4 in-process age
 - [ ] **Docker runtime** — Container-per-session: spin up, mount workspace, execute, tear down (bring back `ContainerManager` properly)
 - [ ] **Subprocess runtime** — Run agents as child processes (Claude Code, Python scripts, Node scripts)
 - [ ] **Container-per-session model** — Wire agent sessions (`agent-session.ts`) to actually spawn/destroy containers
+
+## P1: Governance & Roles
+
+- [ ] **Role taxonomy** — Add CEO/HR/Senior/Junior roles to agent schema and UI
+- [ ] **Decision logging** — `DECISION_RECORDED` events for CEO policy/budget actions
+- [ ] **HR scorecards** — Implement scorecard windowing + periodic `EVAL_REPORTED`
+- [ ] **Hiring/firing proposals** — Emit proposal events, require CEO decision
+
+## P1: State Derivation
+
+- [ ] **State reducers** — Derive `org_state` and `project_state` from event log
+- [ ] **Task graph** — Task dependency graph derived from TASK_* events
+- [ ] **Artifact registry** — Attach artifacts to tasks only; enforce task linkage
 
 ## P2: Framework Adapters & Discovery
 

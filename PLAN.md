@@ -2,7 +2,7 @@
 
 Implementation plan for Clutch - tracking progress toward MVP goals.
 
-**Last Updated:** 2026-02-03
+**Last Updated:** 2026-02-08
 
 ---
 
@@ -154,57 +154,66 @@ Implementation plan for Clutch - tracking progress toward MVP goals.
 
 ## Phase 3: Agent Runtime
 
-**Status:** ✅ Complete
+**Status:** Partial (Docker runtime removed; agents run in-process. Runtime abstraction added for HTTP/subprocess support)
 
-**Goal:** Implement agent execution environment with Docker isolation.
+**Goal:** Implement agent execution environment with pluggable isolation.
 
 ### Tasks
 
-#### 3.1 OpenClaw Adapter
-- [x] Implement adapter interface for agent communication (AgentClient)
-- [x] Handle agent responses and convert to Clutch message format
-- [x] Define Clutch Protocol-aligned agent types
+#### 3.1 Runtime Abstraction (NEW)
+- [x] Define `AgentRuntime` interface with `execute()`, `getHealth()`, `shutdown()`
+- [x] `RuntimeConfig` discriminated union: `in-process`, `http`, `subprocess`
+- [x] `InProcessRuntime` — wraps existing `BaseAgent` subclasses (zero behavior change)
+- [x] `HttpRuntime` — delegates to external HTTP agent endpoints
+- [x] `SubprocessRuntime` — spawns child process per task (stdio or http protocol)
+- [x] `createRuntime()` factory function
+- [x] Refactored `AgentExecutorService` to use runtime registry instead of hardcoded agents
+- [x] Added `runtime` column to agents DB schema
+- [x] Updated `org.yaml` and seed data with runtime config
 
-#### 3.2 Docker Runtime
-- [x] Agent container image definitions (basic structure)
-- [x] Container lifecycle management (start, stop, health) - ContainerManager
-- [x] Volume mounting for workspace and artifacts
-- [x] Network isolation between agents (clutch-agents network)
-- [x] Resource limits (memory, CPU, capabilities)
+#### 3.2 OpenClaw Adapter (removed)
+- [x] ~~Implement adapter interface~~ (removed in build simplification)
 
-#### 3.3 Tool Permissions
+#### 3.3 Docker Runtime (removed)
+- [ ] Agent container image definitions — removed, replaced by runtime abstraction
+- [ ] Container lifecycle management — deferred
+
+#### 3.4 Tool Permissions
 - [x] File system access control per agent
 - [x] Shell command allowlist/denylist
 - [x] Git operations control
 - [x] Browser/HTTP access control
 - [x] Permission checker with trust levels (sandbox/prod)
 
-#### 3.4 Agent Communication
-- [x] Dispatch tasks to agent containers
-- [x] Receive callbacks/results from agents (agent-callbacks routes)
-- [x] Stream agent output to clutchd (progress streaming)
+#### 3.5 Agent Communication
+- [x] Dispatch tasks to agents (via runtime abstraction)
+- [x] Receive results from agents
+- [x] Progress streaming
 - [x] Handle agent failures and retries
 
-#### 3.5 Agent Worker Service
+#### 3.6 Agent Worker Service
 - [x] Task queue consumer in clutchd
 - [x] Result processor with workflow integration
 - [x] Budget recording and enforcement
 
 ### Deliverables
 
-- [x] Agents run in isolated Docker containers
+- [x] Agents execute via pluggable runtime abstraction
+- [x] In-process, HTTP, and subprocess runtimes available
 - [x] Tool permissions enforced at runtime
 - [x] Agent output captured and stored
 
 ### Files Created
 
-- `agents/openclaw/src/types.ts` - Clutch Protocol-aligned agent types
-- `agents/openclaw/src/container-manager.ts` - Docker container lifecycle management
-- `agents/openclaw/src/permissions.ts` - Tool permission enforcement system
-- `agents/openclaw/src/agent-client.ts` - Agent communication client
-- `agents/openclaw/src/index.ts` - AgentRuntime unified interface
+- `packages/agents/src/runtime/types.ts` - AgentRuntime interface, RuntimeConfig union
+- `packages/agents/src/runtime/in-process.ts` - InProcessRuntime wrapping BaseAgent
+- `packages/agents/src/runtime/http.ts` - HttpRuntime for external agents
+- `packages/agents/src/runtime/subprocess.ts` - SubprocessRuntime for child processes
+- `packages/agents/src/runtime/factory.ts` - createRuntime() factory
+- `packages/agents/src/runtime/index.ts` - Re-exports
 - `apps/clutchd/src/services/agent-worker.ts` - Task queue worker service
 - `apps/clutchd/src/routes/agent-callbacks.ts` - Agent callback API routes
+- `apps/clutchd/drizzle/0001_add_agent_runtime.sql` - Migration for runtime column
 
 ---
 
@@ -364,11 +373,20 @@ Implementation plan for Clutch - tracking progress toward MVP goals.
 
 ## Current Focus
 
-**Active Phase:** MVP Complete! 🎉
+**Active Phase:** Phase 8 (Clutch Runtime Compliance) + Runtime Abstraction
 
-**Completed Phases:** 0, 1, 2, 2.5, 3, 4, 5, 6 (Integration), 6 (Org OS)
+**Completed Phases:** 0, 1, 2, 2.5, 3 (partial), 4, 5, 6 (Integration), 6 (Org OS), 7 (Colony UI MVP)
 
-**Next Action:** Testing and iteration - run `make demo` to test the E2E workflow
+**Recent:** Added pluggable Agent Runtime Abstraction (in-process/HTTP/subprocess) and RimWorld Colony UI
+
+**Next Action:** Audit protocol/storage drift (security fields, schema_ref, dedupe); enforce append-only event log; add role-based merge gates
+
+**Next Steps (Security & Hiring):**
+1. Build secrets vault (encrypted) and store OAuth/API tokens as references
+2. Update Hire Agent UI to save tokens into secrets and use refs in runtime config
+3. Resolve secret refs at runtime (http auth token + subprocess env secrets)
+4. Add OpenClaw OAuth flow (PKCE + local callback) for Codex, store token as secret
+5. Document OAuth callback URL and required OpenClaw client ID
 
 ---
 
@@ -633,6 +651,132 @@ Legacy message types map to protocol types:
 
 ---
 
+## Phase 7: RimWorld Colony UI
+
+**Status:** ✅ Complete (MVP)
+
+**Goal:** Add a RimWorld-style top-down colony view showing agents as pixel pawns in an office map.
+
+### Tasks
+
+#### 7.1 Pixi.js Setup
+- [x] Add `pixi.js` v8.x dependency
+- [x] Colony types (MapZone, PawnState, ColonyEvent)
+- [x] Constants (tile size, zone definitions, role colors, desk positions)
+- [x] Procedural sprite generation (pawns, desks, floors, selection rings)
+
+#### 7.2 Core Rendering
+- [x] OfficeMap (Pixi.js Container) - floor grid, zone rooms, furniture
+- [x] AgentPawn (Pixi.js Container) - body, name, status bar, activity bubble
+- [x] Pawn animations: idle bobbing, walking lerp, sleeping ZZZ, progress bar
+- [x] ColonyEngine orchestrator - manages app, map, pawns, animations, events
+
+#### 7.3 React Integration
+- [x] `useColonyEngine` hook - lifecycle, store subscription, ResizeObserver
+- [x] Colony Zustand store (speed, selection, events)
+- [x] Feed agent/task data from main store to engine
+
+#### 7.4 HUD Overlays
+- [x] EventTicker (top) - scrolling event bar
+- [x] TaskQueuePanel (right) - active tasks list
+- [x] AgentInfoPanel (bottom) - selected agent details
+- [x] ColonyControls (bottom-right) - speed buttons
+
+#### 7.5 App Integration
+- [x] Route: `/colony` → `ColonyView`
+- [x] Sidebar link to Colony View
+
+### Deliverables
+
+- [x] `/colony` route renders Pixi.js canvas with office map
+- [x] 5 seed agents appear as colored pawns
+- [x] Pawns animate based on lifecycle state
+- [x] Click pawn → info panel with agent details
+- [x] Event ticker, task queue, speed controls
+
+### Files Created
+
+- `apps/web/src/colony/types.ts` - Colony type definitions
+- `apps/web/src/colony/constants.ts` - Layout constants, role colors, zone definitions
+- `apps/web/src/colony/sprites.ts` - Procedural sprite generation
+- `apps/web/src/colony/OfficeMap.ts` - Office floor plan renderer
+- `apps/web/src/colony/AgentPawn.ts` - Agent pawn with animations
+- `apps/web/src/colony/ColonyEngine.ts` - Pixi.js orchestrator
+- `apps/web/src/colony/useColonyEngine.ts` - React integration hook
+- `apps/web/src/store/colony.ts` - Colony-specific Zustand store
+- `apps/web/src/components/colony/ColonyView.tsx` - Main colony route
+- `apps/web/src/components/colony/EventTicker.tsx` - Event ticker overlay
+- `apps/web/src/components/colony/TaskQueuePanel.tsx` - Task queue panel
+- `apps/web/src/components/colony/AgentInfoPanel.tsx` - Agent info panel
+- `apps/web/src/components/colony/ColonyControls.tsx` - Speed controls
+
+---
+
+## Phase 8: Clutch Runtime Compliance (Spec v0)
+
+**Status:** Not Started
+
+**Goal:** Align Clutch with the Agent Organization Runtime spec: shared state, append-only event log, role gates, and runtime-agnostic pull/run/push.
+
+### Tasks
+
+#### 8.1 Shared State Model
+- [ ] Define `org_state` + `project_state` schemas
+- [ ] Add reducers to derive state from events
+- [ ] Document state derivation and promotion rules
+
+#### 8.2 Append-Only Event Log
+- [ ] Enforce write-once event store (no updates/deletes)
+- [ ] Base event schema with `id`, `type`, `actor_agent_id`, `timestamp`, `refs[]`, `payload`, `cost`
+- [ ] Required event types (TASK_CREATED, TASK_ASSIGNED, ARTIFACT_PRODUCED, TEST_RUN, PR_OPENED, REVIEW_COMMENTED, MERGE_APPROVED, MERGE_BLOCKED, EVAL_REPORTED, HIRING_PROPOSAL, FIRING_PROPOSAL, DECISION_RECORDED, BUDGET_UPDATED)
+
+#### 8.3 Role-Based Gates
+- [ ] Add role taxonomy (CEO/HR/Senior/Junior) to agent schema
+- [ ] Enforce Junior→Senior review gates
+- [ ] Enforce Senior-only merge approvals
+
+#### 8.4 Runtime Interface Contract
+- [ ] Implement `pull()/run()/push()` for in-process, http, subprocess runtimes
+- [ ] Ensure all runtimes emit events via the same event log
+
+#### 8.5 HR & CEO Flows (v1)
+- [ ] Scorecard windowing + `EVAL_REPORTED`
+- [ ] Hiring/firing proposal events and CEO decisions
+- [ ] Budget update events and enforcement
+
+#### 8.6 Protocol/Storage Drift Fixes
+- [ ] Persist `security` (auth/policy) on messages and expose via API
+- [ ] Add `schema_ref` + `payload_type` handling to message APIs and storage
+- [ ] Enforce workflow-scoped payload validation using `packages/protocol/src/schemas.ts`
+- [ ] Fix dedupe semantics (use `(run_id, msg.id)`; keep idempotency_key distinct)
+
+#### 8.7 Append-Only Enforcement
+- [ ] Remove/guard delete endpoints for messages, tasks, channels, artifacts (or gate behind dev-only flag)
+- [ ] Remove delete methods from repositories or hard-block outside tests
+- [ ] Add database constraints or policies to prevent message updates/deletes
+
+#### 8.8 Role Taxonomy & Gates
+- [ ] Expand roles to include CEO/HR/Senior/Junior (update schema, types, seed data)
+- [ ] Enforce Junior→Senior review gating in review routes/workflow engine
+- [ ] Enforce Senior-only merge approvals (new `MERGE_APPROVED`/`MERGE_BLOCKED` events)
+
+#### 8.9 AgentCard/Registry Alignment
+- [ ] Map `agents.endpoints` to AgentCard endpoints (clutch/a2a/http/websocket)
+- [ ] Store and surface AgentCard `security` allow/deny lists per agent
+
+#### 8.10 Docs Sync
+- [ ] Update README architecture diagram (remove OpenClaw pool, reflect runtime abstraction)
+- [ ] Reconcile Agent Organization Guide checklist with implemented code paths
+
+### Deliverables
+
+- [ ] Event-sourced shared state with append-only log
+- [ ] Role gates enforced in task/review flows
+- [ ] Runtime-agnostic pull/run/push contract implemented
+- [ ] HR/CEO governance workflows emitting decisions to event log
+
+---
+
 ## Change Log
 
 | Date | Change | Author |
@@ -656,6 +800,10 @@ Legacy message types map to protocol types:
 | 2026-02-02 | **Phase 6 Integration Complete:** Agent executor bridges control plane with agents, agent worker integrated with real LLM execution, workflow engine uses Clutch Protocol types, E2E demo script created (`scripts/demo-e2e.ts`), Makefile updated with `make demo` command. All MVP success criteria met | Claude |
 | 2026-02-02 | **Package manager migration:** Switched from pnpm to bun for faster installs and better DX. Updated package.json, Makefile, CLAUDE.md, demo scripts. Removed pnpm-workspace.yaml | Claude |
 | 2026-02-03 | **Build simplification:** Packages now export source .ts files directly (no build step, no .d.ts files needed). Removed agents/openclaw (unused). Cleaned up duplicate code patterns. Bun handles TypeScript natively | Claude |
+| 2026-02-08 | **Agent Runtime Abstraction (P0):** Added pluggable `AgentRuntime` interface with `InProcessRuntime`, `HttpRuntime`, and `SubprocessRuntime`. Refactored `AgentExecutorService` to use runtime registry. Added `runtime` column to DB schema. Updated org.yaml and seed data | Claude |
+| 2026-02-08 | **RimWorld Colony UI (Phase 7):** Added Pixi.js-based top-down colony view at `/colony`. Office map with zones, agent pawns with animations (idle bobbing, walking, sleeping ZZZ), HUD overlays (event ticker, task queue, agent info panel, speed controls). Zustand store for colony state | Claude |
+| 2026-02-08 | **PLAN.md audit:** Fixed Phase 3 status (Docker runtime was removed, marked as partial). Added Phase 7 for Colony UI. Updated current focus section | Claude |
+| 2026-02-08 | **Spec drift audit:** Added Phase 8 tasks for protocol/storage alignment, append-only enforcement, role gates, and docs sync | Claude |
 
 ---
 

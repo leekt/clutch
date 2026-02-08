@@ -10,6 +10,20 @@ const reviewSchema = z.object({
 });
 
 export async function reviewRoutes(app: FastifyInstance) {
+  // List all reviews (with optional status filter)
+  app.get('/api/reviews', async (request, reply) => {
+    const query = request.query as { status?: string };
+
+    let reviews;
+    if (query.status === 'pending' || query.status === 'approved' || query.status === 'rejected') {
+      reviews = await reviewRepository.findByStatus(query.status);
+    } else {
+      reviews = await reviewRepository.findAll();
+    }
+
+    return reply.send({ reviews });
+  });
+
   // List reviews for a task
   app.get<{ Params: { taskId: string } }>('/api/tasks/:taskId/reviews', async (request, reply) => {
     const query = request.query as { status?: string };

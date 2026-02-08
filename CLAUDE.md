@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **When making changes to this project, you MUST update:**
 
 1. **PLAN.md** - Mark completed tasks, update status, add new tasks if scope changes
-2. **CLAUDE.md** - Update architecture, commands, or structure if they change
+2. **TODO.md** - Update priorities and any newly discovered gaps
+3. **CLAUDE.md** - Update architecture, commands, or structure if they change
 
 **Before starting work:** Check PLAN.md for current phase and active tasks.
 
@@ -24,6 +25,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Clutch is a local-first platform for running multiple AI agents as a single organization. It treats agents as employees with roles, permissions, and budgets rather than simple prompts.
 
 **Current Status:** See PLAN.md for implementation progress.
+
+---
+
+## Agent Organization Runtime Spec Alignment
+
+Clutch must conform to the Agent Organization Runtime spec:
+
+### Non-Negotiables
+
+- **Single source of truth**: shared state and event log are authoritative
+- **Append-only event log**: all actions emit events; state is derived from events
+- **Role-based gates**: Junior code-only, Senior review/merge, HR evaluation, CEO decisions
+- **Runtime-agnostic**: agents implement `pull() → run() → push()` contract
+
+### Shared State Layers
+
+- `org_state`: vision, OKRs, policies, budgets, tooling
+- `project_state`: architecture summary, ADRs, task graph, release plan
+- `agent_state`: local scratch only; must be summarized before promotion
+
+### Required Event Types
+
+`TASK_CREATED`, `TASK_ASSIGNED`, `ARTIFACT_PRODUCED`, `TEST_RUN`, `PR_OPENED`, `REVIEW_COMMENTED`,
+`MERGE_APPROVED`, `MERGE_BLOCKED`, `EVAL_REPORTED`, `HIRING_PROPOSAL`, `FIRING_PROPOSAL`,
+`DECISION_RECORDED`, `BUDGET_UPDATED`
 
 ---
 
@@ -354,14 +380,10 @@ clutch/
 
 ## Implementation Priority
 
-**Current Phase:** Phase 6 - Agent Organization OS
+**Current Phase:** Phase 8 - Clutch Runtime Compliance
 
-1. ~~Protocol types~~ ✅ - ClutchMessage, AgentCard schemas
-2. ~~Event store~~ ✅ - Append-only message storage
-3. ~~Agent registry~~ ✅ - AgentCard-based registration
-4. ~~Web UI~~ ✅ - Real-time task management
-5. **AgentSpec model** - Personality, strengths, operating_rules
-6. **Heartbeat system** - Wake/work/sleep lifecycle
-7. **Memory model** - WORKING.md, daily logs, MEMORY.md
-8. **Task-centric refactor** - All work attached to tasks
-9. **Daily standup** - Automated team coordination
+1. **Event log compliance** - append-only + required event types
+2. **Shared state derivation** - org_state + project_state reducers
+3. **Role gates** - Junior→Senior review + Senior-only merge
+4. **Runtime contract** - pull/run/push for all runtimes
+5. **HR/CEO workflows** - scorecards + decisions recorded

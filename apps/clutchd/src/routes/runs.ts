@@ -1,60 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { messageBus } from '../services/index.js';
-import { auditRepository } from '../repositories/index.js';
-
-const createRunSchema = z.object({
-  title: z.string().min(1),
-  description: z.string().optional(),
-  requires: z.array(z.string()).optional(),
-  prefers: z.array(z.string()).optional(),
-  fromAgent: z.string().optional(),
-});
 
 export async function runRoutes(app: FastifyInstance) {
-  // Create a new run
-  app.post('/api/runs', async (request, reply) => {
-    const result = createRunSchema.safeParse(request.body);
-    if (!result.success) {
-      return reply.status(400).send({ error: 'Invalid run data', details: result.error.issues });
-    }
-
-    const { runId, taskId, threadId, message } = await messageBus.createRun(result.data);
-
-    await auditRepository.logAction('run.created', 'run', runId, {
-      runId,
-      taskId,
-      details: { title: result.data.title },
-    });
-
-    return reply.status(201).send({
-      runId,
-      taskId,
-      threadId,
-      message,
-    });
-  });
-
-  // Get all messages for a run
-  app.get<{ Params: { runId: string } }>('/api/runs/:runId', async (request, reply) => {
-    const messages = await messageBus.getByRunId(request.params.runId);
-
-    return reply.send({
-      runId: request.params.runId,
-      messageCount: messages.length,
-      messages,
-    });
-  });
-
-  // Get messages for a run (alias route)
-  app.get<{ Params: { runId: string } }>('/api/runs/:runId/messages', async (request, reply) => {
-    const messages = await messageBus.getByRunId(request.params.runId);
-
-    return reply.send({
-      runId: request.params.runId,
-      messages,
-    });
-  });
+  // Note: POST /api/runs and GET /api/runs/:runId are defined in tasks.ts
+  // Note: GET /api/runs/:runId/messages is defined in messages.ts
 
   // Replay a run (stream messages in order)
   app.get<{ Params: { runId: string } }>('/api/runs/:runId/replay', async (request, reply) => {

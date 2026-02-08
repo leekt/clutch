@@ -49,39 +49,97 @@ async function request<T>(
 
 // Agents API
 export const agents = {
-  list: () => request<Agent[]>('/api/agents'),
+  list: () =>
+    request<{ agents: Agent[] }>('/api/agents').then((r) => r.agents),
 
-  get: (id: string) => request<Agent>(`/api/agents/${id}`),
+  get: (id: string) =>
+    request<{ agent: Agent }>(`/api/agents/${id}`).then((r) => r.agent),
 
   create: (data: {
     name: string;
     role: string;
+    description?: string;
     image?: string;
     permissions: Agent['permissions'];
     budget: Agent['budget'];
+    personality?: Agent['personality'];
+    strengths?: string[];
+    operatingRules?: string[];
+    runtime?: {
+      type: 'in-process' | 'http' | 'subprocess';
+      url?: string;
+      authToken?: string;
+      authTokenSecret?: string;
+      timeoutMs?: number;
+      healthPath?: string;
+      command?: string;
+      args?: string[];
+      cwd?: string;
+      env?: Record<string, string>;
+      envSecrets?: Record<string, string>;
+      protocol?: 'stdio' | 'http';
+    };
   }) =>
-    request<Agent>('/api/agents', {
+    request<{ agent: Agent }>('/api/agents', {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    }).then((r) => r.agent),
 
   update: (id: string, data: Partial<Agent>) =>
-    request<Agent>(`/api/agents/${id}`, {
-      method: 'PATCH',
+    request<{ agent: Agent }>(`/api/agents/${id}`, {
+      method: 'PUT',
       body: JSON.stringify(data),
-    }),
+    }).then((r) => r.agent),
 
   delete: (id: string) =>
     request<void>(`/api/agents/${id}`, { method: 'DELETE' }),
 
-  getByRole: (role: string) => request<Agent[]>(`/api/agents/role/${role}`),
+  getByRole: (role: string) =>
+    request<{ agents: Agent[] }>(`/api/agents?role=${role}`).then((r) => r.agents),
 };
+
+// Secrets API
+export const secrets = {
+  create: (data: { name?: string; value: string }) =>
+    request<{ secretId: string }>('/api/secrets', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.secretId),
+};
+
+export const oauth = {
+  codex: {
+    start: (data: {
+      clientId?: string;
+      authUrl?: string;
+      tokenUrl?: string;
+      scope?: string;
+      redirectUrl?: string;
+    }) =>
+      request<{ state: string; authUrl: string; redirectUrl: string }>('/api/oauth/codex/start', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    status: (state: string) =>
+      request<{ status: 'pending' | 'received' | 'exchanged' | 'error' }>(
+        `/api/oauth/codex/status?state=${encodeURIComponent(state)}`,
+      ),
+    finish: (data: { state: string; code?: string; redirectUrl?: string }) =>
+      request<{ secretId: string }>('/api/oauth/codex/finish', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+  },
+};
+
 
 // Tasks API
 export const tasks = {
-  list: () => request<Task[]>('/api/tasks'),
+  list: () =>
+    request<{ tasks: Task[] }>('/api/tasks').then((r) => r.tasks),
 
-  get: (id: string) => request<Task>(`/api/tasks/${id}`),
+  get: (id: string) =>
+    request<{ task: Task }>(`/api/tasks/${id}`).then((r) => r.task),
 
   create: (data: {
     title: string;
@@ -90,46 +148,49 @@ export const tasks = {
     parentTaskId?: string;
     workflowId?: string;
   }) =>
-    request<Task>('/api/tasks', {
+    request<{ task: Task }>('/api/tasks', {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    }).then((r) => r.task),
 
   update: (id: string, data: Partial<Task>) =>
-    request<Task>(`/api/tasks/${id}`, {
+    request<{ task: Task }>(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
-    }),
+    }).then((r) => r.task),
 
   updateState: (id: string, state: Task['state']) =>
-    request<Task>(`/api/tasks/${id}/state`, {
+    request<{ task: Task }>(`/api/tasks/${id}/state`, {
       method: 'PATCH',
       body: JSON.stringify({ state }),
-    }),
+    }).then((r) => r.task),
 
   assign: (id: string, agentId: string) =>
-    request<Task>(`/api/tasks/${id}/assign`, {
+    request<{ task: Task }>(`/api/tasks/${id}/assign`, {
       method: 'POST',
       body: JSON.stringify({ agentId }),
-    }),
+    }).then((r) => r.task),
 
   getByState: (state: Task['state']) =>
-    request<Task[]>(`/api/tasks/state/${state}`),
+    request<{ tasks: Task[] }>(`/api/tasks?state=${state}`).then((r) => r.tasks),
 
-  getByRun: (runId: string) => request<Task[]>(`/api/tasks/run/${runId}`),
+  getByRun: (runId: string) =>
+    request<{ tasks: Task[] }>(`/api/runs/${runId}/tasks`).then((r) => r.tasks),
 };
 
 // Channels API
 export const channels = {
-  list: () => request<Channel[]>('/api/channels'),
+  list: () =>
+    request<{ channels: Channel[] }>('/api/channels').then((r) => r.channels),
 
-  get: (id: string) => request<Channel>(`/api/channels/${id}`),
+  get: (id: string) =>
+    request<{ channel: Channel }>(`/api/channels/${id}`).then((r) => r.channel),
 
   create: (data: { name: string; type: Channel['type']; description?: string }) =>
-    request<Channel>('/api/channels', {
+    request<{ channel: Channel }>('/api/channels', {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    }).then((r) => r.channel),
 
   delete: (id: string) =>
     request<void>(`/api/channels/${id}`, { method: 'DELETE' }),
@@ -138,18 +199,19 @@ export const channels = {
 // Messages API
 export const messages = {
   list: (channelId: string) =>
-    request<Message[]>(`/api/channels/${channelId}/messages`),
+    request<{ messages: Message[] }>(`/api/channels/${channelId}/messages`).then((r) => r.messages),
 
-  get: (id: string) => request<Message>(`/api/messages/${id}`),
+  get: (id: string) =>
+    request<{ message: Message }>(`/api/messages/${id}`).then((r) => r.message),
 
   getByTask: (taskId: string) =>
-    request<Message[]>(`/api/tasks/${taskId}/messages`),
+    request<{ messages: Message[] }>(`/api/tasks/${taskId}/messages`).then((r) => r.messages),
 
   getByRun: (runId: string) =>
-    request<{ runId: string; messages: Message[] }>(`/api/runs/${runId}/messages`),
+    request<{ messages: Message[] }>(`/api/runs/${runId}/messages`).then((r) => r.messages),
 
   getByThread: (threadId: string) =>
-    request<{ threadId: string; messages: Message[] }>(`/api/threads/${threadId}`),
+    request<{ messages: Message[] }>(`/api/threads/${threadId}`).then((r) => r.messages),
 };
 
 // Runs API
@@ -174,26 +236,29 @@ export const runs = {
 
 // Reviews API
 export const reviews = {
-  list: () => request<Review[]>('/api/reviews'),
+  list: () =>
+    request<{ reviews: Review[] }>('/api/reviews').then((r) => r.reviews),
 
-  get: (id: string) => request<Review>(`/api/reviews/${id}`),
+  get: (id: string) =>
+    request<{ review: Review }>(`/api/reviews/${id}`).then((r) => r.review),
 
   getByTask: (taskId: string) =>
-    request<Review[]>(`/api/reviews/task/${taskId}`),
+    request<{ reviews: Review[] }>(`/api/tasks/${taskId}/reviews`).then((r) => r.reviews),
 
-  getPending: () => request<Review[]>('/api/reviews/pending'),
+  getPending: () =>
+    request<{ reviews: Review[] }>('/api/reviews?status=pending').then((r) => r.reviews),
 
   approve: (id: string, comments?: string) =>
-    request<Review>(`/api/reviews/${id}/approve`, {
+    request<{ review: Review }>(`/api/reviews/${id}/approve`, {
       method: 'POST',
       body: JSON.stringify({ comments }),
-    }),
+    }).then((r) => r.review),
 
   reject: (id: string, comments: string) =>
-    request<Review>(`/api/reviews/${id}/reject`, {
+    request<{ review: Review }>(`/api/reviews/${id}/reject`, {
       method: 'POST',
       body: JSON.stringify({ comments }),
-    }),
+    }).then((r) => r.review),
 };
 
 // Artifacts API
@@ -280,6 +345,8 @@ export const api = {
   runs,
   reviews,
   artifacts,
+  secrets,
+  oauth,
   bus,
 };
 

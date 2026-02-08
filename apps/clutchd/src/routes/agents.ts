@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { agentRepository, auditRepository } from '../repositories/index.js';
+import { secretStore } from '../services/secret-store.js';
 
 /**
  * Helper to find an agent by UUID or agentId
@@ -57,6 +58,34 @@ const createAgentSchema = z.object({
 
   // Limits
   maxConcurrency: z.number().optional(),
+
+  // Organization OS: Personality
+  personality: z.object({
+    style: z.enum(['analytical', 'creative', 'systematic', 'pragmatic']).optional(),
+    communication: z.enum(['concise', 'verbose', 'formal', 'casual']).optional(),
+    decision_making: z.enum(['data-driven', 'intuitive', 'consensus-seeking', 'decisive']).optional(),
+  }).optional(),
+
+  // Organization OS: Strengths and rules
+  strengths: z.array(z.string()).optional(),
+  operatingRules: z.array(z.string()).optional(),
+  preferredCollaborators: z.array(z.string()).optional(),
+
+  // Runtime config
+  runtime: z.object({
+    type: z.enum(['in-process', 'http', 'subprocess']),
+    url: z.string().optional(),
+    authToken: z.string().optional(),
+    authTokenSecret: z.string().optional(),
+    timeoutMs: z.number().optional(),
+    healthPath: z.string().optional(),
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    cwd: z.string().optional(),
+    env: z.record(z.string()).optional(),
+    envSecrets: z.record(z.string()).optional(),
+    protocol: z.enum(['stdio', 'http']).optional(),
+  }).optional(),
 });
 
 const updateAgentSchema = createAgentSchema.partial();
@@ -103,6 +132,25 @@ export async function agentRoutes(app: FastifyInstance) {
     }
 
     const data = result.data;
+    let runtime = data.runtime;
+
+    if (runtime?.authToken) {
+      const secretId = await secretStore.createSecret(runtime.authToken, `${data.name}-runtime-token`);
+      runtime = { ...runtime, authToken: undefined, authTokenSecret: secretId };
+    }
+
+    if (runtime?.env) {
+      const envSecrets: Record<string, string> = runtime.envSecrets ?? {};
+      const env: Record<string, string> = { ...runtime.env };
+      for (const [key, value] of Object.entries(runtime.env)) {
+        if (key.endsWith('_API_KEY') || key.endsWith('_TOKEN')) {
+          const secretId = await secretStore.createSecret(value, `${data.name}-${key}`);
+          envSecrets[key] = secretId;
+          delete env[key];
+        }
+      }
+      runtime = { ...runtime, env, envSecrets };
+    }
     const agentId = `agent:${data.name}`;
 
     // Check if agent already exists
@@ -126,6 +174,11 @@ export async function agentRoutes(app: FastifyInstance) {
       trustLevel: data.trustLevel ?? 'sandbox',
       secrets: data.secrets ?? [],
       maxConcurrency: data.maxConcurrency ?? 1,
+      personality: data.personality ?? null,
+      strengths: data.strengths ?? [],
+      operatingRules: data.operatingRules ?? [],
+      preferredCollaborators: data.preferredCollaborators ?? [],
+      runtime: runtime ?? { type: 'in-process' },
     });
 
     await auditRepository.logAction('agent.created', 'agent', agentId, {

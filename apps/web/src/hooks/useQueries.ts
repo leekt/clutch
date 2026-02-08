@@ -58,6 +58,20 @@ export function useCreateAgent() {
   });
 }
 
+export function useDeleteAgent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.agents.delete(id),
+    onSuccess: (_data, id) => {
+      // Remove cached individual agent query so it doesn't get refetched after deletion
+      queryClient.removeQueries({ queryKey: queryKeys.agent(id) });
+      // Refetch the agents list (exact match to avoid refetching removed individual queries)
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents, exact: true });
+    },
+  });
+}
+
 // Tasks hooks
 export function useTasks() {
   const setTasks = useStore((s) => s.setTasks);

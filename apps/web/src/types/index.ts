@@ -32,6 +32,29 @@ export type AgentStatus = 'available' | 'busy' | 'offline';
 
 export type AgentRole = 'pm' | 'research' | 'marketing' | 'developer' | 'qa';
 
+export type AgentRuntimeConfig =
+  | {
+      type: 'in-process';
+    }
+  | {
+      type: 'http';
+      url: string;
+      authToken?: string;
+      authTokenSecret?: string;
+      timeoutMs?: number;
+      healthPath?: string;
+    }
+  | {
+      type: 'subprocess';
+      command: string;
+      args?: string[];
+      cwd?: string;
+      env?: Record<string, string>;
+      envSecrets?: Record<string, string>;
+      timeoutMs?: number;
+      protocol?: 'stdio' | 'http';
+    };
+
 // Agent lifecycle state (Organization OS)
 export type AgentLifecycleState = 'asleep' | 'waking' | 'working' | 'sleeping';
 
@@ -75,6 +98,7 @@ export interface Agent {
   };
   lastHeartbeat?: string;
   createdAt: string;
+  runtime?: AgentRuntimeConfig;
 
   // Organization OS fields
   lifecycleState?: AgentLifecycleState;

@@ -32,6 +32,7 @@ interface AppState {
 
   // Data updates
   updateAgent: (agent: Agent) => void;
+  removeAgent: (agentId: string) => void;
   updateTask: (task: Task) => void;
   updateChannel: (channel: Channel) => void;
   addMessage: (message: Message) => void;
@@ -108,6 +109,12 @@ export const useStore = create<AppState>()(
         set((state) => ({
           agents: { ...state.agents, [agent.agentId]: agent },
         })),
+
+      removeAgent: (agentId) =>
+        set((state) => {
+          const { [agentId]: _, ...rest } = state.agents;
+          return { agents: rest };
+        }),
 
       updateTask: (task) =>
         set((state) => ({

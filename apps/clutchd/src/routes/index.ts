@@ -7,6 +7,8 @@ import { reviewRoutes } from './reviews.js';
 import { runRoutes } from './runs.js';
 import { artifactRoutes } from './artifacts.js';
 import { agentCallbackRoutes } from './agent-callbacks.js';
+import { secretRoutes } from './secrets.js';
+import { oauthRoutes } from './oauth.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await agentRoutes(app);
@@ -17,4 +19,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await runRoutes(app);
   await artifactRoutes(app);
   await agentCallbackRoutes(app);
+  await secretRoutes(app);
+  await oauthRoutes(app);
 }

@@ -26,9 +26,18 @@ export async function channelRoutes(app: FastifyInstance) {
     return reply.send({ channels });
   });
 
-  // Get channel by ID
+  // Get channel by ID or name
   app.get<{ Params: { id: string } }>('/api/channels/:id', async (request, reply) => {
-    const channel = await channelRepository.findById(request.params.id);
+    const id = request.params.id;
+
+    // Try UUID lookup first (skip if clearly not a UUID)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    let channel = isUUID ? await channelRepository.findById(id) : undefined;
+
+    // Fall back to name lookup
+    if (!channel) {
+      channel = await channelRepository.findByName(id);
+    }
     if (!channel) {
       return reply.status(404).send({ error: 'Channel not found' });
     }

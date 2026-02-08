@@ -95,9 +95,16 @@ export class LLMClient {
     baseUrl?: string;
     defaultModel?: string;
   }) {
-    // Auto-detect provider from environment
+    const envProvider = process.env.LLM_PROVIDER as 'openai' | 'anthropic' | undefined;
+    const envApiKey = process.env.LLM_API_KEY;
+    const envBaseUrl = process.env.LLM_BASE_URL;
+    const envModel = process.env.LLM_DEFAULT_MODEL;
+
+    // Auto-detect provider from config/env
     if (config?.provider) {
       this.provider = config.provider;
+    } else if (envProvider) {
+      this.provider = envProvider;
     } else if (process.env.ANTHROPIC_API_KEY) {
       this.provider = 'anthropic';
     } else {
@@ -107,6 +114,8 @@ export class LLMClient {
     // Get API key
     if (config?.apiKey) {
       this.apiKey = config.apiKey;
+    } else if (envApiKey) {
+      this.apiKey = envApiKey;
     } else if (this.provider === 'anthropic') {
       this.apiKey = process.env.ANTHROPIC_API_KEY || '';
     } else {
@@ -116,6 +125,8 @@ export class LLMClient {
     // Set base URL
     if (config?.baseUrl) {
       this.baseUrl = config.baseUrl;
+    } else if (envBaseUrl) {
+      this.baseUrl = envBaseUrl;
     } else if (this.provider === 'anthropic') {
       this.baseUrl = 'https://api.anthropic.com';
     } else {
@@ -125,6 +136,8 @@ export class LLMClient {
     // Set default model
     if (config?.defaultModel) {
       this.defaultModel = config.defaultModel;
+    } else if (envModel) {
+      this.defaultModel = envModel;
     } else if (this.provider === 'anthropic') {
       this.defaultModel = 'claude-3-5-sonnet-20241022';
     } else {

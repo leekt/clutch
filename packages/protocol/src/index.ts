@@ -94,7 +94,6 @@ export {
   ReviewFeedbackV1,
   PlanOutlineV1,
   PAYLOAD_SCHEMAS,
-  PayloadType,
   getPayloadSchema,
   validatePayload,
   safeValidatePayload,
@@ -103,3 +102,5 @@ export {
   WorkflowValidationRule,
   WorkflowStepExpectation,
 } from './schemas.js';
+
+export type { PayloadType } from './schemas.js';
