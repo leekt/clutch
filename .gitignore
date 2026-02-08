@@ -22,7 +22,7 @@ build/
 logs/
 *.log
 npm-debug.log*
-pnpm-debug.log*
+bun-debug.log*
 
 # Testing
 coverage/

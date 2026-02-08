@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { correlationMiddleware, correlationStorage } from './middleware/index.js';
 import { registerRoutes } from './routes/index.js';
-import { agentRegistry, workflowEngine } from './services/index.js';
+import { agentRegistry, workflowEngine, messageBus } from './services/index.js';
 import { redis, pubsub, CHANNELS, closeQueue } from './queue/index.js';
 
 const app = Fastify({
@@ -135,6 +135,9 @@ async function initializeServices() {
     // Load workflow configuration
     await workflowEngine.loadConfig();
 
+    // Start message bus
+    await messageBus.start();
+
     logger.info('Services initialized');
   } catch (err) {
     logger.error({ err }, 'Failed to initialize services');
@@ -145,6 +148,9 @@ async function initializeServices() {
 // Graceful shutdown
 async function shutdown() {
   logger.info('Shutting down...');
+
+  // Stop message bus
+  await messageBus.stop();
 
   // Close WebSocket connections
   for (const client of wsClients) {

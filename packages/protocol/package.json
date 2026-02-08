@@ -3,30 +3,16 @@
   "version": "0.1.0",
   "description": "Clutch Protocol types and schemas",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./message": {
-      "types": "./dist/message.d.ts",
-      "import": "./dist/message.js"
-    },
-    "./agent": {
-      "types": "./dist/agent.d.ts",
-      "import": "./dist/agent.js"
-    },
-    "./types": {
-      "types": "./dist/types.d.ts",
-      "import": "./dist/types.js"
-    }
+    ".": "./src/index.ts",
+    "./message": "./src/message.ts",
+    "./agent": "./src/agent.ts",
+    "./types": "./src/types.ts"
   },
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "zod": "^3.22.0"

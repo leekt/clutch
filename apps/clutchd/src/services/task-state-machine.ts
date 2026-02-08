@@ -39,7 +39,7 @@ export interface TaskStateEvent {
 }
 
 export class TaskStateMachine {
-  private listeners: ((event: TaskStateEvent) => void)[] = [];
+  private listeners: Array<(event: TaskStateEvent) => void> = [];
 
   onTransition(listener: (event: TaskStateEvent) => void): () => void {
     this.listeners.push(listener);
@@ -52,22 +52,6 @@ export class TaskStateMachine {
     for (const listener of this.listeners) {
       listener(event);
     }
-  }
-
-  canTransition(from: TaskState, to: TaskState): boolean {
-    return isValidTransition(from, to);
-  }
-
-  getNextStates(current: TaskState): TaskState[] {
-    return getValidTransitions(current);
-  }
-
-  isTerminal(state: TaskState): boolean {
-    return isTerminalState(state);
-  }
-
-  isActive(state: TaskState): boolean {
-    return isActiveState(state);
   }
 }
 

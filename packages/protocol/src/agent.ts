@@ -81,6 +81,70 @@ export const AgentSecurity = z.object({
 
 export type AgentSecurity = z.infer<typeof AgentSecurity>;
 
+// =============================================================================
+// Agent Organization OS: AgentSpec Extensions
+// =============================================================================
+
+/**
+ * Agent personality - How the agent behaves and communicates
+ */
+export const AgentPersonality = z.object({
+  // Communication style
+  style: z.enum(['analytical', 'creative', 'systematic', 'pragmatic']).optional(),
+  communication: z.enum(['concise', 'verbose', 'formal', 'casual']).optional(),
+  decision_making: z.enum(['data-driven', 'intuitive', 'consensus-seeking', 'decisive']).optional(),
+});
+
+export type AgentPersonality = z.infer<typeof AgentPersonality>;
+
+/**
+ * Agent strengths - What this agent excels at (more specific than capabilities)
+ */
+export const AgentStrength = z.string(); // e.g., "market_analysis", "source_verification"
+
+/**
+ * Operating rule - A behavioral constraint or guideline
+ */
+export const OperatingRule = z.string(); // e.g., "Always cite sources", "Escalate if blocked >1h"
+
+/**
+ * Memory configuration for an agent
+ */
+export const MemoryConfig = z.object({
+  // Working memory limit (session-scoped)
+  working_limit: z.string().optional(),  // e.g., "50KB"
+  // How long to retain daily logs
+  daily_retention: z.string().optional(), // e.g., "30d"
+  // When to summarize into long-term memory
+  long_term_summary: z.enum(['daily', 'weekly', 'on-demand']).optional(),
+});
+
+export type MemoryConfig = z.infer<typeof MemoryConfig>;
+
+/**
+ * AgentSpec - Extended agent specification for Organization OS
+ *
+ * Goes beyond capabilities to define personality, strengths, and behavior.
+ */
+export const AgentSpec = z.object({
+  // Personality (how the agent behaves)
+  personality: AgentPersonality.optional(),
+
+  // Strengths (what the agent excels at)
+  strengths: z.array(AgentStrength).optional(),
+
+  // Operating rules (behavioral constraints)
+  operating_rules: z.array(OperatingRule).optional(),
+
+  // Preferred collaborators (who this agent works best with)
+  preferred_collaborators: z.array(z.string().startsWith('agent:')).optional(),
+
+  // Memory configuration
+  memory: MemoryConfig.optional(),
+});
+
+export type AgentSpec = z.infer<typeof AgentSpec>;
+
 /**
  * Agent status
  */
@@ -92,6 +156,13 @@ export type AgentStatus = z.infer<typeof AgentStatus>;
  *
  * Agents advertise what they can do via an AgentCard.
  * Used for routing, scheduling, and safety checks.
+ *
+ * Extended with AgentSpec for Organization OS:
+ * - personality: How the agent behaves
+ * - strengths: What it excels at
+ * - operating_rules: Behavioral constraints
+ * - preferred_collaborators: Who it works best with
+ * - memory: Memory configuration
  */
 export const AgentCard = z.object({
   // Protocol version
@@ -114,6 +185,23 @@ export const AgentCard = z.object({
 
   // Security
   security: AgentSecurity,
+
+  // === AgentSpec (Organization OS) ===
+
+  // Personality (how the agent behaves)
+  personality: AgentPersonality.optional(),
+
+  // Strengths (what the agent excels at, beyond capabilities)
+  strengths: z.array(AgentStrength).optional(),
+
+  // Operating rules (behavioral constraints and guidelines)
+  operating_rules: z.array(OperatingRule).optional(),
+
+  // Preferred collaborators
+  preferred_collaborators: z.array(z.string().startsWith('agent:')).optional(),
+
+  // Memory configuration
+  memory: MemoryConfig.optional(),
 
   // Metadata
   meta: z.record(z.unknown()).optional(),
@@ -241,4 +329,62 @@ export function canUseTool(card: AgentCard, toolId: string): boolean {
   return card.capabilities.some(cap =>
     cap.tools?.includes(toolId) || cap.servers?.includes(toolId)
   );
+}
+
+// =============================================================================
+// Strength-based matching utilities (Organization OS)
+// =============================================================================
+
+/**
+ * Check if an agent has a specific strength
+ */
+export function hasStrength(card: AgentCard, strength: string): boolean {
+  return card.strengths?.includes(strength) ?? false;
+}
+
+/**
+ * Check if an agent has all required strengths
+ */
+export function hasAllStrengths(card: AgentCard, requiredStrengths: string[]): boolean {
+  if (!card.strengths) return requiredStrengths.length === 0;
+  return requiredStrengths.every(s => card.strengths!.includes(s));
+}
+
+/**
+ * Check if an agent has any of the given strengths
+ */
+export function hasAnyStrength(card: AgentCard, strengths: string[]): boolean {
+  if (!card.strengths) return false;
+  return strengths.some(s => card.strengths!.includes(s));
+}
+
+/**
+ * Score an agent based on strength match
+ * Returns a score from 0 to 1
+ */
+export function scoreStrengthMatch(card: AgentCard, desiredStrengths: string[]): number {
+  if (!card.strengths || desiredStrengths.length === 0) return 0;
+
+  const matchCount = desiredStrengths.filter(s => card.strengths!.includes(s)).length;
+  return matchCount / desiredStrengths.length;
+}
+
+/**
+ * Check if an agent is a preferred collaborator for another agent
+ */
+export function isPreferredCollaborator(card: AgentCard, collaboratorId: string): boolean {
+  return card.preferred_collaborators?.includes(collaboratorId) ?? false;
+}
+
+/**
+ * Get the AgentSpec portion of an AgentCard
+ */
+export function getAgentSpec(card: AgentCard): AgentSpec {
+  return {
+    personality: card.personality,
+    strengths: card.strengths,
+    operating_rules: card.operating_rules,
+    preferred_collaborators: card.preferred_collaborators,
+    memory: card.memory,
+  };
 }

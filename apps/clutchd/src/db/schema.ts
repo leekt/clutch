@@ -66,6 +66,14 @@ export const reviewStatusEnum = pgEnum('review_status', ['pending', 'approved', 
 // Trust levels
 export const trustLevelEnum = pgEnum('trust_level', ['sandbox', 'prod']);
 
+// Personality styles (Organization OS)
+export const personalityStyleEnum = pgEnum('personality_style', ['analytical', 'creative', 'systematic', 'pragmatic']);
+export const communicationStyleEnum = pgEnum('communication_style', ['concise', 'verbose', 'formal', 'casual']);
+export const decisionMakingStyleEnum = pgEnum('decision_making_style', ['data-driven', 'intuitive', 'consensus-seeking', 'decisive']);
+
+// Agent lifecycle state (Organization OS)
+export const agentLifecycleStateEnum = pgEnum('agent_lifecycle_state', ['asleep', 'waking', 'working', 'sleeping']);
+
 // Agents table - represents AI workers with roles and capabilities
 export const agents = pgTable('agents', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -114,9 +122,46 @@ export const agents = pgTable('agents', {
   // Limits
   maxConcurrency: integer('max_concurrency').default(1),
 
+  // === AgentSpec (Organization OS) ===
+
+  // Personality
+  personality: jsonb('personality').$type<{
+    style?: 'analytical' | 'creative' | 'systematic' | 'pragmatic';
+    communication?: 'concise' | 'verbose' | 'formal' | 'casual';
+    decision_making?: 'data-driven' | 'intuitive' | 'consensus-seeking' | 'decisive';
+  }>(),
+
+  // Strengths (what this agent excels at)
+  strengths: jsonb('strengths').$type<string[]>().default([]),
+
+  // Operating rules (behavioral constraints)
+  operatingRules: jsonb('operating_rules').$type<string[]>().default([]),
+
+  // Preferred collaborators
+  preferredCollaborators: jsonb('preferred_collaborators').$type<string[]>().default([]),
+
+  // Memory configuration
+  memoryConfig: jsonb('memory_config').$type<{
+    working_limit?: string;
+    daily_retention?: string;
+    long_term_summary?: 'daily' | 'weekly' | 'on-demand';
+  }>(),
+
+  // === Lifecycle State (Organization OS) ===
+
+  // Current lifecycle state
+  lifecycleState: text('lifecycle_state').$type<'asleep' | 'waking' | 'working' | 'sleeping'>().default('asleep'),
+
+  // Current session ID (when working)
+  currentSessionId: text('current_session_id'),
+
   // Runtime state
   status: text('status').$type<'available' | 'busy' | 'offline'>().default('offline'),
   lastHeartbeat: timestamp('last_heartbeat'),
+
+  // Last wake/sleep timestamps
+  lastWakeAt: timestamp('last_wake_at'),
+  lastSleepAt: timestamp('last_sleep_at'),
 
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

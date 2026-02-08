@@ -1,8 +1,9 @@
 import { createHash } from 'crypto';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+
 import type { ClutchMessage, ClutchMessageInput } from '@clutch/protocol';
-import { safeValidateMessage, createMessage } from '@clutch/protocol';
+import { createMessage, safeValidateMessage } from '@clutch/protocol';
 
 export interface ValidationError {
   field: string;

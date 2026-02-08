@@ -1,7 +1,7 @@
-import { agentRepository } from '../repositories/index.js';
-import { pubsub } from '../queue/index.js';
-import { logger } from '../logger.js';
 import type { Agent } from '../db/schema.js';
+import { logger } from '../logger.js';
+import { pubsub } from '../queue/index.js';
+import { agentRepository } from '../repositories/index.js';
 
 export type AgentStatus = 'available' | 'busy' | 'offline';
 

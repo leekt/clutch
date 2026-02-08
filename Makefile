@@ -1,41 +1,41 @@
-.PHONY: install dev build test lint format typecheck clean docker-up docker-down db-migrate db-seed
+.PHONY: install dev build test lint format typecheck clean docker-up docker-down db-migrate db-seed demo demo-auto
 
 # Install dependencies
 install:
-	pnpm install
+	bun install
 
 # Run development servers (web + clutchd)
 dev:
-	pnpm run dev
+	bun run dev
 
 # Build all packages
 build:
-	pnpm run build
+	bun run build
 
 # Run tests
 test:
-	pnpm run test
+	bun run test
 
 # Lint code
 lint:
-	pnpm run lint
+	bun run lint
 
 # Format code
 format:
-	pnpm run format
+	bun run format
 
 # Check formatting
 format-check:
-	pnpm run format:check
+	bun run format:check
 
 # Type check
 typecheck:
-	pnpm run typecheck
+	bun run typecheck
 
 # Clean build artifacts
 clean:
-	rm -rf apps/*/dist agents/*/dist
-	rm -rf node_modules apps/*/node_modules agents/*/node_modules
+	rm -rf apps/*/dist
+	rm -rf node_modules apps/*/node_modules packages/*/node_modules
 
 # Docker command (supports both old and new syntax)
 DOCKER_COMPOSE := $(shell command -v docker-compose 2>/dev/null || echo "docker compose")
@@ -58,17 +58,17 @@ docker-clean:
 
 # Run database migrations
 db-migrate:
-	pnpm run db:migrate
+	bun run db:migrate
 
 # Seed database
 db-seed:
-	pnpm run db:seed
+	bun run db:seed
 
 # Development with Docker (postgres/redis in Docker, apps local)
 dev-docker: docker-up
 	@echo "Waiting for services to be ready..."
 	@sleep 3
-	pnpm run dev
+	bun run dev
 
 # Full local development setup
 setup: install docker-up
@@ -77,3 +77,11 @@ setup: install docker-up
 	$(MAKE) db-migrate
 	$(MAKE) db-seed
 	@echo "Setup complete! Run 'make dev' to start development servers."
+
+# Run E2E demo (requires clutchd to be running)
+demo:
+	bun run scripts/demo-e2e.ts
+
+# Run E2E demo with auto-approval
+demo-auto:
+	bun run scripts/demo-e2e.ts --auto-approve

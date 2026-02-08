@@ -3,16 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "A colony of OpenClaw agents - organization operating system for AI agents",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "pnpm run --parallel dev",
-    "build": "pnpm run --recursive build",
-    "test": "pnpm run --recursive test",
-    "lint": "pnpm run --recursive lint",
+    "dev": "bun run --filter '*' dev",
+    "build": "bun run --filter '*' build",
+    "test": "bun run --filter '*' test",
+    "lint": "bun run --filter '*' lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yaml,yml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,yaml,yml}\"",
-    "typecheck": "pnpm run --recursive typecheck",
-    "db:migrate": "pnpm --filter clutchd db:migrate",
-    "db:seed": "pnpm --filter clutchd db:seed"
+    "typecheck": "bun run --filter '*' typecheck",
+    "db:migrate": "bun run --filter clutchd db:migrate",
+    "db:seed": "bun run --filter clutchd db:seed"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -20,8 +24,6 @@
     "typescript": "^5.3.0"
   },
   "engines": {
-    "node": ">=20.0.0",
-    "pnpm": ">=8.0.0"
-  },
-  "packageManager": "pnpm@8.15.0"
+    "node": ">=20.0.0"
+  }
 }

@@ -114,6 +114,13 @@ export class MessageRouter implements Router {
     this.deliveryHandlers.delete(agentId);
   }
 
+  /**
+   * Get a delivery handler for an agent
+   */
+  getHandler(agentId: string): DeliveryHandler | undefined {
+    return this.deliveryHandlers.get(agentId);
+  }
+
   async route(message: ClutchMessage): Promise<RoutingResult> {
     // Extract routing requirements
     const requires = message.requires ?? [];

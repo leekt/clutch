@@ -70,6 +70,18 @@ export {
   getCapabilitiesByPrefix,
   getCapabilitiesByTags,
   canUseTool,
+  // AgentSpec (Organization OS)
+  AgentPersonality,
+  AgentStrength,
+  OperatingRule,
+  MemoryConfig,
+  AgentSpec,
+  hasStrength,
+  hasAllStrengths,
+  hasAnyStrength,
+  scoreStrengthMatch,
+  isPreferredCollaborator,
+  getAgentSpec,
 } from './agent.js';
 
 // Schema Registry

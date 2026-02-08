@@ -1,11 +1,21 @@
+import { generateTaskId, generateRunId } from '@clutch/protocol';
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { taskRepository, auditRepository } from '../repositories/index.js';
-import { isValidTransition, VALID_TRANSITIONS } from '../services/task-state-machine.js';
+
 import { pubsub } from '../queue/index.js';
-import { generateTaskId, generateRunId } from '@clutch/protocol';
+import { taskRepository, auditRepository } from '../repositories/index.js';
+import { messageBus } from '../services/message-bus.js';
+import { isValidTransition, VALID_TRANSITIONS } from '../services/task-state-machine.js';
+import { workflowEngine } from '../services/workflow-engine.js';
 
 const taskStateSchema = z.enum(['created', 'assigned', 'running', 'review', 'rework', 'done', 'cancelled', 'failed']);
+
+/**
+ * Helper to find a task by UUID or taskId
+ */
+async function findTask(id: string) {
+  return await taskRepository.findById(id) ?? await taskRepository.findByTaskId(id);
+}
 
 const createTaskSchema = z.object({
   title: z.string().min(1),
@@ -64,10 +74,7 @@ export async function taskRoutes(app: FastifyInstance) {
 
   // Get task by ID (supports UUID or taskId)
   app.get<{ Params: { id: string } }>('/api/tasks/:id', async (request, reply) => {
-    let task = await taskRepository.findById(request.params.id);
-    if (!task) {
-      task = await taskRepository.findByTaskId(request.params.id);
-    }
+    const task = await findTask(request.params.id);
     if (!task) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -129,11 +136,7 @@ export async function taskRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid task data', details: result.error.issues });
     }
 
-    // Find by UUID or taskId
-    let task = await taskRepository.findById(request.params.id);
-    if (!task) {
-      task = await taskRepository.findByTaskId(request.params.id);
-    }
+    const task = await findTask(request.params.id);
     if (!task) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -163,11 +166,7 @@ export async function taskRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid state change', details: result.error.issues });
     }
 
-    // Find by UUID or taskId
-    let currentTask = await taskRepository.findById(request.params.id);
-    if (!currentTask) {
-      currentTask = await taskRepository.findByTaskId(request.params.id);
-    }
+    const currentTask = await findTask(request.params.id);
     if (!currentTask) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -209,11 +208,7 @@ export async function taskRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid assignment', details: result.error.issues });
     }
 
-    // Find by UUID or taskId
-    let currentTask = await taskRepository.findById(request.params.id);
-    if (!currentTask) {
-      currentTask = await taskRepository.findByTaskId(request.params.id);
-    }
+    const currentTask = await findTask(request.params.id);
     if (!currentTask) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -244,11 +239,7 @@ export async function taskRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid completion data', details: result.error.issues });
     }
 
-    // Find by UUID or taskId
-    let currentTask = await taskRepository.findById(request.params.id);
-    if (!currentTask) {
-      currentTask = await taskRepository.findByTaskId(request.params.id);
-    }
+    const currentTask = await findTask(request.params.id);
     if (!currentTask) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -282,11 +273,7 @@ export async function taskRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid error data', details: result.error.issues });
     }
 
-    // Find by UUID or taskId
-    let currentTask = await taskRepository.findById(request.params.id);
-    if (!currentTask) {
-      currentTask = await taskRepository.findByTaskId(request.params.id);
-    }
+    const currentTask = await findTask(request.params.id);
     if (!currentTask) {
       return reply.status(404).send({ error: 'Task not found' });
     }
@@ -315,5 +302,202 @@ export async function taskRoutes(app: FastifyInstance) {
     await auditRepository.logAction('task.deleted', 'task', request.params.id);
 
     return reply.status(204).send();
+  });
+
+  // ============== Workflow Endpoints ==============
+
+  // Start a workflow for a task
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/workflow', async (request, reply) => {
+    const workflowSchema = z.object({
+      workflowName: z.string(),
+    });
+
+    const result = workflowSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(400).send({ error: 'Invalid workflow data', details: result.error.issues });
+    }
+
+    const task = await findTask(request.params.id);
+    if (!task) {
+      return reply.status(404).send({ error: 'Task not found' });
+    }
+
+    // Start workflow
+    const execution = await workflowEngine.startWorkflow(
+      result.data.workflowName,
+      task.taskId,
+      task.runId,
+      task.runId // Use runId as threadId for simplicity
+    );
+
+    if (!execution) {
+      return reply.status(400).send({ error: 'Failed to start workflow' });
+    }
+
+    await auditRepository.logAction('workflow.started', 'task', task.taskId, {
+      runId: task.runId,
+      taskId: task.taskId,
+      details: { workflowName: result.data.workflowName },
+    });
+
+    return reply.send({ execution });
+  });
+
+  // Advance workflow (approve/reject)
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/workflow/advance', async (request, reply) => {
+    const advanceSchema = z.object({
+      decision: z.enum(['approved', 'rejected']),
+      comments: z.string().optional(),
+    });
+
+    const result = advanceSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(400).send({ error: 'Invalid decision', details: result.error.issues });
+    }
+
+    const task = await findTask(request.params.id);
+    if (!task) {
+      return reply.status(404).send({ error: 'Task not found' });
+    }
+
+    const nextStep = await workflowEngine.advanceWorkflow(task.taskId, result.data.decision);
+
+    await auditRepository.logAction('workflow.advanced', 'task', task.taskId, {
+      runId: task.runId,
+      taskId: task.taskId,
+      details: { decision: result.data.decision, comments: result.data.comments },
+    });
+
+    return reply.send({ nextStep: nextStep === 'done' ? 'done' : nextStep?.id });
+  });
+
+  // Cancel workflow
+  app.delete<{ Params: { id: string } }>('/api/tasks/:id/workflow', async (request, reply) => {
+    const task = await findTask(request.params.id);
+    if (!task) {
+      return reply.status(404).send({ error: 'Task not found' });
+    }
+
+    const cancelled = await workflowEngine.cancelWorkflow(task.taskId, 'User cancelled');
+
+    if (!cancelled) {
+      return reply.status(400).send({ error: 'No active workflow for this task' });
+    }
+
+    return reply.send({ success: true });
+  });
+
+  // ============== Run/E2E Endpoints ==============
+
+  // Create a new run (E2E task flow)
+  app.post('/api/runs', async (request, reply) => {
+    const runSchema = z.object({
+      title: z.string().min(1),
+      description: z.string().optional(),
+      workflowName: z.string().optional(), // Optional: auto-start a workflow
+      requires: z.array(z.string()).optional(),
+      prefers: z.array(z.string()).optional(),
+    });
+
+    const result = runSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(400).send({ error: 'Invalid run data', details: result.error.issues });
+    }
+
+    const data = result.data;
+
+    // Create run through message bus
+    const run = await messageBus.createRun({
+      title: data.title,
+      description: data.description,
+      requires: data.requires,
+      prefers: data.prefers,
+    });
+
+    await auditRepository.logAction('run.created', 'run', run.runId, {
+      runId: run.runId,
+      taskId: run.taskId,
+      details: { title: data.title },
+    });
+
+    // Auto-start workflow if specified
+    if (data.workflowName) {
+      await workflowEngine.startWorkflow(
+        data.workflowName,
+        run.taskId,
+        run.runId,
+        run.threadId
+      );
+    }
+
+    return reply.status(201).send({
+      runId: run.runId,
+      taskId: run.taskId,
+      threadId: run.threadId,
+      messageId: run.message.id,
+    });
+  });
+
+  // Get run status with all tasks
+  app.get<{ Params: { runId: string } }>('/api/runs/:runId', async (request, reply) => {
+    const tasks = await taskRepository.findByRunId(request.params.runId);
+    const messages = await messageBus.getByRunId(request.params.runId);
+
+    if (tasks.length === 0 && messages.length === 0) {
+      return reply.status(404).send({ error: 'Run not found' });
+    }
+
+    // Calculate run status
+    const taskStates = tasks.map(t => t.state);
+    const allDone = taskStates.every(s => s === 'done');
+    const anyFailed = taskStates.some(s => s === 'failed');
+    const anyRunning = taskStates.some(s => ['running', 'assigned', 'review', 'rework'].includes(s));
+
+    let status = 'created';
+    if (allDone) status = 'completed';
+    else if (anyFailed) status = 'failed';
+    else if (anyRunning) status = 'running';
+
+    return reply.send({
+      runId: request.params.runId,
+      status,
+      tasks,
+      messageCount: messages.length,
+      summary: {
+        total: tasks.length,
+        completed: taskStates.filter(s => s === 'done').length,
+        failed: taskStates.filter(s => s === 'failed').length,
+        running: taskStates.filter(s => ['running', 'assigned'].includes(s)).length,
+        pending: taskStates.filter(s => s === 'created').length,
+      },
+    });
+  });
+
+  // List available workflows
+  app.get('/api/workflows', async (_request, reply) => {
+    const workflows = workflowEngine.listWorkflows();
+    return reply.send({ workflows });
+  });
+
+  // Get workflow execution status
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/workflow/status', async (request, reply) => {
+    const task = await findTask(request.params.id);
+    if (!task) {
+      return reply.status(404).send({ error: 'Task not found' });
+    }
+
+    const execution = workflowEngine.getExecution(task.taskId);
+    if (!execution) {
+      return reply.status(404).send({ error: 'No active workflow for this task' });
+    }
+
+    const workflow = workflowEngine.getWorkflow(execution.workflowId);
+    const currentStep = workflow?.steps.find(s => s.id === execution.currentStepId);
+
+    return reply.send({
+      execution,
+      workflow: workflow ? { name: workflow.name, description: workflow.description } : null,
+      currentStep,
+    });
   });
 }

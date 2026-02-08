@@ -207,6 +207,60 @@ interface Adapter {
 
 ---
 
+## Agent Organization OS (Paradigm)
+
+> **Reference:** `docs/Agent_Organization_Guide.md` for full details.
+
+Clutch treats agents as **employees in an organization**, not just prompts with capabilities.
+
+### Key Principles
+
+1. **Control Plane Mediates Everything**
+   - Agents never talk directly to each other
+   - All messages flow through the control plane (clutchd)
+   - Control plane decides routing based on strengths, not just capabilities
+
+2. **Agents Are Not Always-On**
+   - Agents wake for tasks, then sleep
+   - Each session is isolated (no state leakage)
+   - Heartbeat system: `wake → work → sleep`
+
+3. **Tasks Are Central**
+   - All work attaches to a task_id
+   - No orphan messages or artifacts
+   - Tasks are the unit of accountability and billing
+
+4. **Structured Memory**
+   - `WORKING.md` - Current task context (session-scoped)
+   - `daily/YYYY-MM-DD.md` - Daily activity log
+   - `MEMORY.md` - Long-term knowledge base
+
+5. **AgentSpec Beyond Capabilities**
+   - `personality` - How the agent communicates and decides
+   - `strengths` - What it excels at (more specific than capabilities)
+   - `operating_rules` - Behavioral constraints and guidelines
+
+### Agent Lifecycle
+
+```
+┌─────────┐    task.request    ┌─────────┐    task.result    ┌─────────┐
+│ ASLEEP  │ ──────────────────►│ WORKING │ ──────────────────►│ ASLEEP  │
+└─────────┘                    └─────────┘                    └─────────┘
+     │                              │                              ▲
+     │      scheduled wakeup        │         timeout/error        │
+     └──────────────────────────────┴──────────────────────────────┘
+```
+
+### Daily Standup
+
+Automated at configured time:
+1. Wake each agent for standup
+2. Collect: completed yesterday, planned today, blockers
+3. Generate summary as EXEC_REPORT
+4. Store in `/memory/daily/`
+
+---
+
 ## Design Principles
 
 - **Protocol-first**: All communication via standardized ClutchMessage envelope
@@ -221,7 +275,7 @@ interface Adapter {
 
 ```bash
 # Install dependencies
-pnpm install
+bun install
 
 # Start infrastructure (PostgreSQL, Redis)
 make docker-up
@@ -229,16 +283,16 @@ make docker-up
 # Development mode with hot reload (after docker-up)
 make dev
 # Or run services individually:
-pnpm --filter clutchd dev   # Backend on :3001
-pnpm --filter web dev       # Frontend on :3000
+bun run --filter clutchd dev   # Backend on :3001
+bun run --filter web dev       # Frontend on :3000
 
 # Build all packages
 make build
-# Or: pnpm run build
+# Or: bun run build
 
 # Type check
 make typecheck
-# Or: pnpm run typecheck
+# Or: bun run typecheck
 
 # Lint and format
 make lint
@@ -249,6 +303,9 @@ make test
 
 # Full local setup (install + docker + migrate + seed)
 make setup
+
+# Run E2E demo (requires clutchd running)
+make demo
 ```
 
 ---
@@ -258,19 +315,22 @@ make setup
 ```
 clutch/
 ├── apps/
-│   ├── web/              # React frontend (event stream UI)
-│   └── clutchd/          # Control plane daemon
-├── agents/
-│   └── openclaw/         # OpenClaw agent adapter
+│   ├── web/              # React frontend (Vite + Tailwind)
+│   └── clutchd/          # Control plane daemon (Fastify)
 ├── packages/
-│   └── protocol/         # Shared protocol types (ClutchMessage, AgentCard)
+│   ├── protocol/         # Clutch Protocol types (ClutchMessage, AgentCard)
+│   ├── core/             # Event store, router, registry
+│   ├── agents/           # Agent implementations (PM, Research, Marketing, Developer)
+│   └── adapters/         # MCP/A2A adapters
 ├── config/
-│   ├── org.yaml          # Agent definitions
+│   ├── org.yaml          # Agent definitions (personality, strengths, capabilities)
 │   └── workflows.yaml    # Workflow definitions
 ├── docs/
-│   └── Clutch_Protocol_v0.md  # Protocol specification (SOURCE OF TRUTH)
+│   ├── Clutch_Protocol_v0.md      # Protocol specification
+│   └── Agent_Organization_Guide.md # Organization paradigm
 ├── workspace/            # Per-agent working directories
 ├── artifacts/            # Output artifacts with hashes
+├── scripts/              # Utility scripts (demo-e2e.ts)
 ├── docker-compose.yml
 ├── PLAN.md               # Implementation plan & progress
 ├── CLAUDE.md             # This file
@@ -284,31 +344,24 @@ clutch/
 | File | Purpose |
 |------|---------|
 | docs/Clutch_Protocol_v0.md | **Protocol specification (highest priority)** |
+| docs/Agent_Organization_Guide.md | **Organization paradigm (agent lifecycle, memory model)** |
 | README.md | Vision, core concepts, MVP scope |
 | PLAN.md | Implementation phases, task tracking, current status |
-| config/org.yaml | Agent definitions and permissions |
+| config/org.yaml | Agent definitions (personality, strengths, capabilities) |
 | config/workflows.yaml | Workflow state machines and review chains |
 
 ---
 
 ## Implementation Priority
 
-1. **Protocol types** (`packages/protocol/`) - ClutchMessage, AgentCard schemas
-2. **Event store** - Append-only message storage
-3. **Agent registry** - AgentCard-based registration
-4. **Adapters** - MCP adapter, A2A adapter
-5. **UI streaming** - Event stream to WebSocket
+**Current Phase:** Phase 6 - Agent Organization OS
 
----
-
-## Migration Notes
-
-The current implementation uses legacy message types (`PLAN`, `PROPOSAL`, etc.). These need to be migrated to protocol-compliant types:
-
-| Legacy | Protocol Equivalent |
-|--------|-------------------|
-| `PLAN` | `task.request` with intent="plan" |
-| `PROPOSAL` | `task.progress` or `task.result` |
-| `EXEC_REPORT` | `task.result` |
-| `REVIEW` | `task.accept` or `task.error` |
-| `BLOCKER` | `task.error` or `chat.system` |
+1. ~~Protocol types~~ ✅ - ClutchMessage, AgentCard schemas
+2. ~~Event store~~ ✅ - Append-only message storage
+3. ~~Agent registry~~ ✅ - AgentCard-based registration
+4. ~~Web UI~~ ✅ - Real-time task management
+5. **AgentSpec model** - Personality, strengths, operating_rules
+6. **Heartbeat system** - Wake/work/sleep lifecycle
+7. **Memory model** - WORKING.md, daily logs, MEMORY.md
+8. **Task-centric refactor** - All work attached to tasks
+9. **Daily standup** - Automated team coordination

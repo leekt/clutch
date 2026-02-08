@@ -1,6 +1,6 @@
-import { agentRepository, auditRepository } from '../repositories/index.js';
-import { logger } from '../logger.js';
 import type { Agent } from '../db/schema.js';
+import { logger } from '../logger.js';
+import { agentRepository, auditRepository } from '../repositories/index.js';
 
 export interface UsageRecord {
   agentId: string;

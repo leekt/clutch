@@ -1,4 +1,4 @@
-import { eq, isNull, and, desc } from 'drizzle-orm';
+import { eq, isNull, and, desc, inArray } from 'drizzle-orm';
 import { db, tasks, type Task, type NewTask } from '../db/index.js';
 
 export type TaskState = Task['state'];
@@ -24,6 +24,11 @@ export const taskRepository = {
 
   async findByState(state: TaskState): Promise<Task[]> {
     return db.select().from(tasks).where(eq(tasks.state, state));
+  },
+
+  async findByStates(states: TaskState[]): Promise<Task[]> {
+    if (states.length === 0) return [];
+    return db.select().from(tasks).where(inArray(tasks.state, states));
   },
 
   async findByAssignee(assigneeId: string): Promise<Task[]> {

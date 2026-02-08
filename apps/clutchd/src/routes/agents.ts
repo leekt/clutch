@@ -1,6 +1,18 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+
 import { agentRepository, auditRepository } from '../repositories/index.js';
+
+/**
+ * Helper to find an agent by UUID or agentId
+ */
+async function findAgent(id: string) {
+  const agent = await agentRepository.findById(id);
+  if (agent) return agent;
+
+  const agentId = id.startsWith('agent:') ? id : `agent:${id}`;
+  return await agentRepository.findByAgentId(agentId);
+}
 
 const createAgentSchema = z.object({
   // Identity
@@ -76,14 +88,7 @@ export async function agentRoutes(app: FastifyInstance) {
 
   // Get agent by ID or agentId
   app.get<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
-    let agent = await agentRepository.findById(request.params.id);
-    if (!agent) {
-      // Try to find by agentId (e.g., agent:research)
-      const agentId = request.params.id.startsWith('agent:')
-        ? request.params.id
-        : `agent:${request.params.id}`;
-      agent = await agentRepository.findByAgentId(agentId);
-    }
+    const agent = await findAgent(request.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'Agent not found' });
     }
@@ -137,14 +142,7 @@ export async function agentRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid agent data', details: result.error.issues });
     }
 
-    // Find by UUID or agentId
-    let agent = await agentRepository.findById(request.params.id);
-    if (!agent) {
-      const agentId = request.params.id.startsWith('agent:')
-        ? request.params.id
-        : `agent:${request.params.id}`;
-      agent = await agentRepository.findByAgentId(agentId);
-    }
+    const agent = await findAgent(request.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'Agent not found' });
     }
@@ -170,14 +168,7 @@ export async function agentRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid status', details: result.error.issues });
     }
 
-    // Find by UUID or agentId
-    let agent = await agentRepository.findById(request.params.id);
-    if (!agent) {
-      const agentId = request.params.id.startsWith('agent:')
-        ? request.params.id
-        : `agent:${request.params.id}`;
-      agent = await agentRepository.findByAgentId(agentId);
-    }
+    const agent = await findAgent(request.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'Agent not found' });
     }
@@ -194,40 +185,23 @@ export async function agentRoutes(app: FastifyInstance) {
 
   // Agent heartbeat
   app.post<{ Params: { id: string } }>('/api/agents/:id/heartbeat', async (request, reply) => {
-    // Find by UUID or agentId
-    let agent = await agentRepository.findById(request.params.id);
-    if (!agent) {
-      const agentId = request.params.id.startsWith('agent:')
-        ? request.params.id
-        : `agent:${request.params.id}`;
-      agent = await agentRepository.findByAgentId(agentId);
-    }
+    const agent = await findAgent(request.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'Agent not found' });
     }
 
     const updated = await agentRepository.heartbeat(agent.agentId);
-
     return reply.send({ agent: updated });
   });
 
   // Delete agent
   app.delete<{ Params: { id: string } }>('/api/agents/:id', async (request, reply) => {
-    // Find by UUID or agentId
-    let agent = await agentRepository.findById(request.params.id);
-    if (!agent) {
-      const agentId = request.params.id.startsWith('agent:')
-        ? request.params.id
-        : `agent:${request.params.id}`;
-      agent = await agentRepository.findByAgentId(agentId);
-    }
-
+    const agent = await findAgent(request.params.id);
     if (!agent) {
       return reply.status(404).send({ error: 'Agent not found' });
     }
 
     await agentRepository.delete(agent.id);
-
     await auditRepository.logAction('agent.deleted', 'agent', agent.agentId);
 
     return reply.status(204).send();

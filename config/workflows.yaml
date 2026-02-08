@@ -1,18 +1,24 @@
 # Workflow Definitions
 # Defines task flows, review chains, and state transitions
+# Updated for Clutch Protocol v0 message types
 
 workflows:
-  # Main product development workflow
+  # Main product development workflow (E2E demo)
   - name: product-development
     description: "End-to-end product development from idea to implementation"
     trigger: manual
+    domain: planning
 
     steps:
       - id: research
         name: "Market Research"
         agent: research
         action: research
-        output_type: PROPOSAL
+        domain: research
+        output_type: task.result
+        requires_review: true
+        reviewer: pm
+        timeout_sec: 300
         next:
           approved: marketing
           rejected: research
@@ -21,9 +27,11 @@ workflows:
         name: "Marketing Copy"
         agent: marketing
         action: create_copy
-        output_type: PROPOSAL
+        domain: marketing
+        output_type: task.result
         requires_review: true
         reviewer: pm
+        timeout_sec: 300
         next:
           approved: development
           rejected: marketing
@@ -32,9 +40,11 @@ workflows:
         name: "Implementation"
         agent: developer
         action: implement
-        output_type: EXEC_REPORT
+        domain: code
+        output_type: task.result
         requires_review: true
         reviewer: pm
+        timeout_sec: 600
         next:
           approved: done
           rejected: development
@@ -43,18 +53,65 @@ workflows:
   - name: research-only
     description: "Standalone research task"
     trigger: manual
+    domain: research
 
     steps:
       - id: research
         name: "Research"
         agent: research
         action: research
-        output_type: PROPOSAL
+        domain: research
+        output_type: task.result
         requires_review: true
         reviewer: pm
+        timeout_sec: 300
         next:
           approved: done
           rejected: research
+
+  # Marketing campaign workflow
+  - name: marketing-campaign
+    description: "Create marketing materials for a product"
+    trigger: manual
+    domain: marketing
+
+    steps:
+      - id: research
+        name: "Market Research"
+        agent: research
+        action: competitive_analysis
+        domain: research
+        output_type: task.result
+        timeout_sec: 300
+        next:
+          approved: copy
+          rejected: research
+
+      - id: copy
+        name: "Marketing Copy"
+        agent: marketing
+        action: create_copy
+        domain: marketing
+        output_type: task.result
+        requires_review: true
+        reviewer: pm
+        timeout_sec: 300
+        next:
+          approved: landing
+          rejected: copy
+
+      - id: landing
+        name: "Landing Page"
+        agent: marketing
+        action: create_landing_page
+        domain: marketing
+        output_type: task.result
+        requires_review: true
+        reviewer: pm
+        timeout_sec: 300
+        next:
+          approved: done
+          rejected: landing
 
 # State definitions
 states:
