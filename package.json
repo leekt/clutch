@@ -18,6 +18,9 @@
     "db:migrate": "bun run --filter clutchd db:migrate",
     "db:seed": "bun run --filter clutchd db:seed"
   },
+  "dependencies": {
+    "node-pty": "^1.0.0"
+  },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "prettier": "^3.2.0",

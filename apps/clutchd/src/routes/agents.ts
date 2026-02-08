@@ -1,8 +1,9 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { agentRepository, auditRepository } from '../repositories/index.js';
+import { agentRepository, auditRepository, channelRepository, messageRepository } from '../repositories/index.js';
 import { secretStore } from '../services/secret-store.js';
+import { agentMemoryService } from '../services/agent-memory.js';
 
 /**
  * Helper to find an agent by UUID or agentId
@@ -174,6 +175,7 @@ export async function agentRoutes(app: FastifyInstance) {
       trustLevel: data.trustLevel ?? 'sandbox',
       secrets: data.secrets ?? [],
       maxConcurrency: data.maxConcurrency ?? 1,
+      status: 'available',
       personality: data.personality ?? null,
       strengths: data.strengths ?? [],
       operatingRules: data.operatingRules ?? [],
@@ -253,6 +255,20 @@ export async function agentRoutes(app: FastifyInstance) {
     if (!agent) {
       return reply.status(404).send({ error: 'Agent not found' });
     }
+
+    // Clean up DM channel + messages
+    const dmName = `dm:user:${agent.agentId}`;
+    const dmChannel = await channelRepository.findByName(dmName);
+    if (dmChannel) {
+      await messageRepository.deleteByChannelId(dmChannel.id);
+      await channelRepository.delete(dmChannel.id);
+      await auditRepository.logAction('channel.deleted', 'channel', dmChannel.id, {
+        details: { name: dmName, type: 'dm', agentId: agent.agentId },
+      });
+    }
+
+    // Delete agent memory
+    await agentMemoryService.deleteAgentMemory(agent.agentId);
 
     await agentRepository.delete(agent.id);
     await auditRepository.logAction('agent.deleted', 'agent', agent.agentId);

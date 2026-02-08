@@ -60,12 +60,14 @@ export function useCreateAgent() {
 
 export function useDeleteAgent() {
   const queryClient = useQueryClient();
+  const removeAgent = useStore((s) => s.removeAgent);
 
   return useMutation({
-    mutationFn: (id: string) => api.agents.delete(id),
-    onSuccess: (_data, id) => {
+    mutationFn: (input: { id: string; agentId: string }) => api.agents.delete(input.id),
+    onSuccess: (_data, input) => {
+      removeAgent(input.agentId);
       // Remove cached individual agent query so it doesn't get refetched after deletion
-      queryClient.removeQueries({ queryKey: queryKeys.agent(id) });
+      queryClient.removeQueries({ queryKey: queryKeys.agent(input.id) });
       // Refetch the agents list (exact match to avoid refetching removed individual queries)
       queryClient.invalidateQueries({ queryKey: queryKeys.agents, exact: true });
     },
@@ -190,6 +192,21 @@ export function useCreateChannel() {
     onSuccess: (channel) => {
       updateChannel(channel);
       queryClient.invalidateQueries({ queryKey: queryKeys.channels });
+    },
+  });
+}
+
+export function useSendChat(channelId: string | undefined) {
+  const queryClient = useQueryClient();
+  const addMessage = useStore((s) => s.addMessage);
+
+  return useMutation({
+    mutationFn: (content: string) => api.messages.sendChat(channelId!, content),
+    onSuccess: (message) => {
+      addMessage(message);
+      if (channelId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.messages(channelId) });
+      }
     },
   });
 }

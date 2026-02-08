@@ -188,7 +188,7 @@ export interface Task {
 export interface Channel {
   id: string;
   name: string;
-  type: 'task' | 'department';
+  type: 'task' | 'department' | 'dm';
   description?: string;
   taskId?: string;
   unreadCount?: number;

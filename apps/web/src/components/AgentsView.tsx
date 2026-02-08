@@ -5,6 +5,7 @@ import { clsx } from 'clsx';
 import { useAgents, useDeleteAgent } from '../hooks/useQueries';
 import { useStore, selectAgentsList } from '../store';
 import { HireAgentModal } from './HireAgentModal';
+import { api } from '../lib/api';
 import type { Agent, AgentStatus, AgentLifecycleState } from '../types';
 
 const statusConfig: Record<AgentStatus, { label: string; color: string; bgColor: string }> = {
@@ -62,11 +63,20 @@ export function AgentsView() {
   const deleteAgent = useDeleteAgent();
 
   const handleFireAgent = (agent: Agent) => {
-    deleteAgent.mutate(agent.id, {
+    deleteAgent.mutate({ id: agent.id, agentId: agent.agentId }, {
       onSuccess: () => {
         navigate('/agents', { replace: true });
       },
     });
+  };
+
+  const handleMessageAgent = async (agent: Agent) => {
+    try {
+      const channel = await api.channels.findOrCreateDM(agent.agentId);
+      navigate(`/channels/${channel.id}`);
+    } catch (error) {
+      console.error('Failed to open DM:', error);
+    }
   };
 
   // Auto-open hire modal when there are no agents (onboarding)
@@ -158,6 +168,7 @@ export function AgentsView() {
                   key={agent.agentId}
                   agent={agent}
                   isSelected={agent.agentId === agentId}
+                  onMessage={handleMessageAgent}
                 />
               ))}
             </div>
@@ -166,7 +177,7 @@ export function AgentsView() {
       </div>
 
       {/* Agent detail panel */}
-      {selectedAgent && <AgentDetailPanel agent={selectedAgent} onFire={handleFireAgent} />}
+      {selectedAgent && <AgentDetailPanel agent={selectedAgent} onFire={handleFireAgent} onMessage={handleMessageAgent} />}
 
       {/* Hire agent modal */}
       {showHireModal && (
@@ -186,41 +197,40 @@ export function AgentsView() {
 interface AgentRowProps {
   agent: Agent;
   isSelected: boolean;
+  onMessage: (agent: Agent) => void;
 }
 
-function AgentRow({ agent, isSelected }: AgentRowProps) {
+function AgentRow({ agent, isSelected, onMessage }: AgentRowProps) {
   const config = statusConfig[agent.status];
   const lifecycle = agent.lifecycleState ? lifecycleConfig[agent.lifecycleState] : null;
 
   return (
-    <a
-      href={`/agents/${agent.agentId}`}
+    <div
       className={clsx(
-        'block px-4 py-3 hover:bg-gray-800 transition-colors',
+        'px-4 py-3 hover:bg-gray-800 transition-colors',
         isSelected && 'bg-gray-800'
       )}
     >
       <div className="flex items-start gap-3">
         {/* Avatar with lifecycle indicator */}
-        <div className="relative">
+        <a href={`/agents/${agent.agentId}`} className="relative flex-shrink-0">
           <div
             className={clsx(
-              'w-10 h-10 rounded flex items-center justify-center flex-shrink-0',
+              'w-10 h-10 rounded flex items-center justify-center',
               roleColors[agent.role] || 'bg-gray-700'
             )}
           >
             <span className="text-sm font-medium">{agent.name[0]}</span>
           </div>
-          {/* Lifecycle state icon */}
           {lifecycle && (
             <span className="absolute -bottom-1 -right-1 text-xs" title={lifecycle.label}>
               {lifecycle.icon}
             </span>
           )}
-        </div>
+        </a>
 
         {/* Content */}
-        <div className="flex-1 min-w-0">
+        <a href={`/agents/${agent.agentId}`} className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="font-medium">{agent.name}</h3>
             <span
@@ -239,7 +249,6 @@ function AgentRow({ agent, isSelected }: AgentRowProps) {
               </span>
             )}
           </div>
-          {/* Show top strengths instead of description */}
           {agent.strengths && agent.strengths.length > 0 ? (
             <div className="flex gap-1 mt-1 flex-wrap">
               {agent.strengths.slice(0, 3).map((strength) => (
@@ -259,18 +268,31 @@ function AgentRow({ agent, isSelected }: AgentRowProps) {
               {agent.description}
             </p>
           )}
-        </div>
+        </a>
+
+        {/* Message button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onMessage(agent);
+          }}
+          className="mt-1 px-3 py-1.5 bg-gray-700 hover:bg-blue-600 rounded text-xs text-gray-300 hover:text-white transition-colors flex-shrink-0"
+          title={`Message ${agent.name}`}
+        >
+          Message
+        </button>
       </div>
-    </a>
+    </div>
   );
 }
 
 interface AgentDetailPanelProps {
   agent: Agent;
   onFire: (agent: Agent) => void;
+  onMessage: (agent: Agent) => void;
 }
 
-function AgentDetailPanel({ agent, onFire }: AgentDetailPanelProps) {
+function AgentDetailPanel({ agent, onFire, onMessage }: AgentDetailPanelProps) {
   const [confirmFire, setConfirmFire] = useState(false);
   const config = statusConfig[agent.status];
   const lifecycle = agent.lifecycleState ? lifecycleConfig[agent.lifecycleState] : null;
@@ -299,6 +321,12 @@ function AgentDetailPanel({ agent, onFire }: AgentDetailPanelProps) {
             <h3 className="text-lg font-semibold">{agent.name}</h3>
             <p className="text-sm text-gray-400 capitalize">{agent.role}</p>
           </div>
+          <button
+            onClick={() => onMessage(agent)}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm text-white"
+          >
+            Message
+          </button>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span

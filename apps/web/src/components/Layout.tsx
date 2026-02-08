@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from './Sidebar';
-import { useAgents, useTasks, useChannels } from '../hooks/useQueries';
+import { useAgents, useTasks, useChannels, queryKeys } from '../hooks/useQueries';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useStore } from '../store';
 import type { WSEvent } from '../types';
@@ -10,6 +11,7 @@ interface LayoutProps {
 }
 
 export function Layout({ children }: LayoutProps) {
+  const queryClient = useQueryClient();
   const { updateAgent, updateTask, addMessage } = useStore();
 
   // Load initial data
@@ -45,6 +47,11 @@ export function Layout({ children }: LayoutProps) {
           // Handle new messages
           if (event.action === 'created' && event.data) {
             addMessage(event.data as any);
+            // Invalidate channel messages query so ChannelView picks up the new message
+            const channelId = (event.data as any).channelId;
+            if (channelId) {
+              queryClient.invalidateQueries({ queryKey: queryKeys.messages(channelId) });
+            }
           }
           break;
       }

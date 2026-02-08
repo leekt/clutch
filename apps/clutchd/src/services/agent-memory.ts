@@ -79,6 +79,19 @@ class AgentMemoryService {
     return memoryPath;
   }
 
+  /**
+   * Delete all memory for an agent (used when firing/removing)
+   */
+  async deleteAgentMemory(agentId: string): Promise<void> {
+    const memoryPath = this.getMemoryPath(agentId);
+    try {
+      await fs.rm(memoryPath, { recursive: true, force: true });
+      logger.info({ agentId }, 'Deleted agent memory directory');
+    } catch (error) {
+      logger.warn({ agentId, error }, 'Failed to delete agent memory');
+    }
+  }
+
   // =========================================================================
   // WORKING.md - Session-scoped current task context
   // =========================================================================

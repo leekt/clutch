@@ -37,6 +37,10 @@ artifacts/*
 # Docker
 .docker/
 
+# Secrets
+.secrets/
+**/.secrets/
+
 # Misc
 *.tgz
 .cache/

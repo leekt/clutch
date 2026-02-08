@@ -27,7 +27,9 @@ export function Sidebar() {
   const { sidebarView, setSidebarView, setSelectedTask, unreadByChannel } = useStore();
   const agents = useStore(selectAgentsList);
   const tasks = useStore(selectActiveTasksList);
-  const channels = useStore(selectChannelsList);
+  const allChannels = useStore(selectChannelsList);
+  const channels = allChannels.filter((c) => c.type !== 'dm');
+  const dmChannels = allChannels.filter((c) => c.type === 'dm');
 
   const { data: pendingReviews } = usePendingReviews();
   const pendingReviewCount = pendingReviews?.length ?? 0;
@@ -146,6 +148,44 @@ export function Sidebar() {
                 </li>
               ))}
             </ul>
+
+            {/* Direct Messages */}
+            {dmChannels.length > 0 && (
+              <>
+                <h2 className="px-2 py-1 mt-4 text-xs font-semibold text-gray-400 uppercase">
+                  Direct Messages
+                </h2>
+                <ul className="space-y-0.5">
+                  {dmChannels.map((dm) => {
+                    const agentName = dm.name.replace(/^dm:user:agent:/, '') || dm.name;
+                    const isActive = location.pathname === `/channels/${dm.id}`;
+                    const unread = unreadByChannel[dm.id] || 0;
+
+                    return (
+                      <li key={dm.id}>
+                        <Link
+                          to={`/channels/${dm.id}`}
+                          className={clsx(
+                            'w-full px-2 py-1 rounded flex items-center gap-2',
+                            isActive
+                              ? 'bg-sidebar-active text-white'
+                              : 'text-gray-300 hover:bg-sidebar-hover'
+                          )}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-gray-500" />
+                          <span className="flex-1 truncate">{agentName}</span>
+                          {unread > 0 && (
+                            <span className="w-5 h-5 bg-blue-600 rounded-full text-xs flex items-center justify-center">
+                              {unread}
+                            </span>
+                          )}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
           </div>
         )}
 

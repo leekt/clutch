@@ -1,6 +1,8 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -34,6 +36,14 @@ function ensureKeyLength(key: Buffer): Buffer {
 }
 
 class SecretStore {
+  private legacySecretsDir: string;
+
+  constructor() {
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const projectRoot = resolve(__dirname, '..', '..', '..');
+    this.legacySecretsDir = resolve(projectRoot, 'workspace', '.secrets');
+  }
+
   private async ensureDir(): Promise<string> {
     const dir = path.resolve(config.secretsDir);
     await fs.mkdir(dir, { recursive: true });
@@ -42,6 +52,10 @@ class SecretStore {
 
   private getSecretPath(id: string): string {
     return path.resolve(config.secretsDir, `${id}.json`);
+  }
+
+  private getLegacySecretPath(id: string): string {
+    return path.resolve(this.legacySecretsDir, `${id}.json`);
   }
 
   async createSecret(value: string, name?: string): Promise<string> {
@@ -71,8 +85,16 @@ class SecretStore {
 
   async getSecret(id: string): Promise<string> {
     const key = ensureKeyLength(getKey());
-    const file = this.getSecretPath(id);
-    const raw = await fs.readFile(file, 'utf8');
+    let raw: string;
+    try {
+      raw = await fs.readFile(this.getSecretPath(id), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      raw = await fs.readFile(this.getLegacySecretPath(id), 'utf8');
+      logger.warn({ id }, 'Secret read from legacy secrets directory');
+    }
     const record = JSON.parse(raw) as StoredSecret;
 
     const iv = Buffer.from(record.iv, 'base64');

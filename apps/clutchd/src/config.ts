@@ -1,11 +1,15 @@
 import dotenv from 'dotenv';
-import { dirname, resolve } from 'path';
+import { dirname, resolve, basename } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 import { z } from 'zod';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..', '..', '..');
 dotenv.config({ path: resolve(PROJECT_ROOT, '.env') });
+
+const WORKSPACE_NAME = basename(PROJECT_ROOT);
+const LOCAL_CONFIG_ROOT = resolve(homedir(), '.clutch', WORKSPACE_NAME);
 
 const envSchema = z.object({
   PORT: z.string().default('3001'),
@@ -15,7 +19,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   CLUTCH_SECRET_KEY: z.string().optional(),
-  CLUTCH_SECRETS_DIR: z.string().default('workspace/.secrets'),
+  CLUTCH_SECRETS_DIR: z.string().default(resolve(LOCAL_CONFIG_ROOT, 'secrets')),
   CODEX_OAUTH_CLIENT_ID: z.string().optional(),
   CODEX_OAUTH_AUTH_URL: z.string().default('https://auth.openai.com/oauth/authorize'),
   CODEX_OAUTH_TOKEN_URL: z.string().default('https://auth.openai.com/oauth/token'),
@@ -42,4 +46,6 @@ export const config = {
     redirectUrl: env.CODEX_OAUTH_REDIRECT_URL,
     scope: env.CODEX_OAUTH_SCOPE,
   },
+  localConfigRoot: LOCAL_CONFIG_ROOT,
+  workspaceName: WORKSPACE_NAME,
 };

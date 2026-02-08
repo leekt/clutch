@@ -4,7 +4,7 @@ import { channelRepository, auditRepository } from '../repositories/index.js';
 
 const channelSchema = z.object({
   name: z.string().min(1),
-  type: z.enum(['task', 'department']),
+  type: z.enum(['task', 'department', 'dm']),
   description: z.string().optional(),
   taskId: z.string().uuid().optional(),
 });
@@ -17,7 +17,7 @@ export async function channelRoutes(app: FastifyInstance) {
     const query = request.query as { type?: string };
 
     let channels;
-    if (query.type === 'task' || query.type === 'department') {
+    if (query.type === 'task' || query.type === 'department' || query.type === 'dm') {
       channels = await channelRepository.findByType(query.type);
     } else {
       channels = await channelRepository.findAll();

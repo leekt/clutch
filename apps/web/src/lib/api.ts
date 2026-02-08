@@ -132,6 +132,21 @@ export const oauth = {
   },
 };
 
+export const settings = {
+  get: () =>
+    request<{ settings: { workerRootDir?: string; claudeWorkerPath?: string; codexWorkerPath?: string } }>(
+      '/api/settings',
+    ).then((r) => r.settings),
+  update: (data: { workerRootDir?: string; claudeWorkerPath?: string; codexWorkerPath?: string }) =>
+    request<{ settings: { workerRootDir?: string; claudeWorkerPath?: string; codexWorkerPath?: string } }>(
+      '/api/settings',
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      },
+    ).then((r) => r.settings),
+};
+
 
 // Tasks API
 export const tasks = {
@@ -194,6 +209,18 @@ export const channels = {
 
   delete: (id: string) =>
     request<void>(`/api/channels/${id}`, { method: 'DELETE' }),
+
+  findOrCreateDM: async (agentId: string): Promise<Channel> => {
+    const dmName = `dm:user:${agentId}`;
+    // Try to find existing DM channel first
+    try {
+      return await channels.get(dmName);
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 404)) throw err;
+    }
+    // Create new DM channel
+    return await channels.create({ name: dmName, type: 'dm', description: `DM with ${agentId.replace('agent:', '')}` });
+  },
 };
 
 // Messages API
@@ -212,6 +239,12 @@ export const messages = {
 
   getByThread: (threadId: string) =>
     request<{ messages: Message[] }>(`/api/threads/${threadId}`).then((r) => r.messages),
+
+  sendChat: (channelId: string, content: string) =>
+    request<{ message: Message }>(`/api/channels/${channelId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }).then((r) => r.message),
 };
 
 // Runs API
@@ -347,6 +380,7 @@ export const api = {
   artifacts,
   secrets,
   oauth,
+  settings,
   bus,
 };
 

@@ -6,8 +6,10 @@ import {
   type TaskDispatch,
   type TaskResult,
 } from '@clutch/agents';
-import { dirname, resolve } from 'path';
+import { dirname, resolve, basename } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
+import { existsSync } from 'fs';
 
 import { logger } from '../logger.js';
 import { pubsub } from '../queue/index.js';
@@ -32,11 +34,89 @@ export class AgentExecutorService {
       return config;
     }
 
-    if (!config.cwd) {
-      return { ...config, cwd: this.projectRoot };
+    const command = (config.command || '').trim();
+    const expandedCommand = command.startsWith('~/')
+      ? resolve(homedir(), command.slice(2))
+      : command;
+    const commandBase = basename(command);
+    let normalized: RuntimeConfig = { ...config };
+
+    if (commandBase === 'claude') {
+      normalized = {
+        ...config,
+        command: 'node',
+        args: [resolve(this.projectRoot, 'scripts', 'claude-code-worker.js')],
+      };
     }
 
-    return config;
+    if (commandBase === 'codex' || commandBase === 'openai-codex') {
+      normalized = {
+        ...config,
+        command: 'node',
+        args: [resolve(this.projectRoot, 'scripts', 'codex-code-worker.js')],
+      };
+    }
+
+    if (normalized.args && normalized.args.length > 0) {
+      const firstArg = normalized.args[0]!;
+      const resolvedArg = firstArg.startsWith('~/') ? resolve(homedir(), firstArg.slice(2)) : firstArg;
+      const argsJoined = normalized.args.join(' ');
+      if (commandBase === 'bun' && (argsJoined.includes('claude-code-worker') || argsJoined.includes('codex-code-worker'))) {
+        if (argsJoined.includes('claude-code-worker')) {
+          normalized = {
+            ...normalized,
+            command: 'node',
+            args: [resolve(this.projectRoot, 'scripts', 'claude-code-worker.js')],
+          };
+        }
+        if (argsJoined.includes('codex-code-worker')) {
+          normalized = {
+            ...normalized,
+            command: 'node',
+            args: [resolve(this.projectRoot, 'scripts', 'codex-code-worker.js')],
+          };
+        }
+      }
+      if (firstArg.endsWith('codex-code-worker.ts')) {
+        normalized = {
+          ...normalized,
+          command: 'node',
+          args: [resolve(this.projectRoot, 'scripts', 'codex-code-worker.js')],
+        };
+      }
+      if (firstArg.endsWith('claude-code-worker.ts')) {
+        normalized = {
+          ...normalized,
+          command: 'node',
+          args: [resolve(this.projectRoot, 'scripts', 'claude-code-worker.js')],
+        };
+      }
+      if (!existsSync(resolvedArg)) {
+        if (firstArg.includes('claude-code-worker')) {
+          normalized = {
+            ...normalized,
+            command: 'node',
+            args: [resolve(this.projectRoot, 'scripts', 'claude-code-worker.js')],
+          };
+        }
+        if (firstArg.includes('codex-code-worker')) {
+          normalized = {
+            ...normalized,
+            command: 'node',
+            args: [resolve(this.projectRoot, 'scripts', 'codex-code-worker.js')],
+          };
+        }
+      }
+    }
+
+    const finalCommand =
+      normalized.command === config.command ? expandedCommand : normalized.command;
+
+    if (!normalized.cwd) {
+      return { ...normalized, command: finalCommand, cwd: this.projectRoot };
+    }
+
+    return { ...normalized, command: finalCommand };
   }
 
   private async resolveRuntimeSecrets(config: RuntimeConfig): Promise<RuntimeConfig> {

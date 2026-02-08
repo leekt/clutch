@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { messageRepository, auditRepository, channelRepository } from '../repositories/index.js';
 import { pubsub } from '../queue/index.js';
+import { agentExecutor } from '../services/agent-executor.js';
 import { generateMessageId, generateThreadId, generateRunId, generateTaskId } from '@clutch/protocol';
 
 // Input schema for creating messages (API level)
@@ -245,6 +246,74 @@ export async function messageRoutes(app: FastifyInstance) {
     return reply.status(201).send({ message });
   });
 
+  // Simplified chat message endpoint for DM channels
+  const chatSchema = z.object({
+    content: z.string().min(1),
+    fromAgentId: z.string().optional(),
+  });
+
+  app.post<{ Params: { channelId: string } }>('/api/channels/:channelId/chat', async (request, reply) => {
+    const channel = await channelRepository.findById(request.params.channelId);
+    if (!channel) {
+      return reply.status(404).send({ error: 'Channel not found' });
+    }
+
+    const result = chatSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(400).send({ error: 'Invalid message', details: result.error.issues });
+    }
+
+    const fromAgentId = result.data.fromAgentId || 'user:human';
+    const messageId = generateMessageId();
+    const threadId = generateThreadId();
+    const runId = generateRunId();
+    const taskId = generateTaskId();
+
+    // Extract target agent from DM channel name (format: dm:user:agent:{name})
+    const channelName = channel.name || '';
+    const targetMatch = channelName.match(/^dm:user:(.+)$/);
+    const toAgentId = targetMatch?.[1] ?? 'system';
+
+    const message = await messageRepository.create({
+      messageId,
+      version: 'clutch/0.1',
+      threadId,
+      runId,
+      taskId,
+      parentTaskId: null,
+      fromAgentId,
+      toAgentIds: [toAgentId],
+      type: 'chat.message',
+      domain: null,
+      payloadType: null,
+      payload: { message: result.data.content },
+      requires: [],
+      prefers: [],
+      attachments: [],
+      idempotencyKey: null,
+      meta: {},
+      channelId: request.params.channelId,
+      cost: '0',
+      runtime: 0,
+      tokens: 0,
+    });
+
+    await pubsub.publishMessageUpdate(messageId, 'created', message);
+
+    // Dispatch to agent in background (non-blocking — user gets their message back immediately)
+    if (toAgentId !== 'system' && fromAgentId === 'user:human') {
+      dispatchAgentReply(toAgentId, result.data.content, {
+        threadId,
+        runId,
+        channelId: request.params.channelId,
+      }).catch((err) => {
+        console.error('Agent dispatch failed:', err);
+      });
+    }
+
+    return reply.status(201).send({ message });
+  });
+
   // Delete message (should rarely be used - event store is append-only)
   app.delete<{ Params: { id: string } }>('/api/messages/:id', async (request, reply) => {
     const deleted = await messageRepository.delete(request.params.id);
@@ -256,4 +325,63 @@ export async function messageRoutes(app: FastifyInstance) {
 
     return reply.status(204).send();
   });
+}
+
+/**
+ * Dispatch a chat message to an agent and post its response back to the channel.
+ */
+async function dispatchAgentReply(
+  agentId: string,
+  userMessage: string,
+  context: { threadId: string; runId: string; channelId: string }
+): Promise<void> {
+  const taskId = generateTaskId();
+
+  const result = await agentExecutor.executeTask(agentId, {
+    taskId,
+    runId: context.runId,
+    threadId: context.threadId,
+    action: 'chat',
+    input: { message: userMessage },
+  });
+
+  // Extract response text from agent output
+  let responseText: string;
+  if (!result.success) {
+    responseText = result.error?.message ?? 'Sorry, I encountered an error processing your message.';
+  } else if (result.output && typeof result.output === 'object') {
+    const output = result.output as Record<string, unknown>;
+    // Worker scripts return { content, raw }, other agents may use message/response/result
+    responseText = String(output.content ?? output.message ?? output.response ?? output.result ?? JSON.stringify(output));
+  } else {
+    responseText = String(result.output ?? 'Done.');
+  }
+
+  // Post the agent's reply back to the same channel
+  const replyMessageId = generateMessageId();
+  const replyMessage = await messageRepository.create({
+    messageId: replyMessageId,
+    version: 'clutch/0.1',
+    threadId: context.threadId,
+    runId: context.runId,
+    taskId,
+    parentTaskId: null,
+    fromAgentId: agentId,
+    toAgentIds: ['user:human'],
+    type: 'chat.message',
+    domain: null,
+    payloadType: null,
+    payload: { message: responseText },
+    requires: [],
+    prefers: [],
+    attachments: [],
+    idempotencyKey: null,
+    meta: {},
+    channelId: context.channelId,
+    cost: String(result.usage.cost),
+    runtime: result.usage.runtime,
+    tokens: result.usage.tokens,
+  });
+
+  await pubsub.publishMessageUpdate(replyMessageId, 'created', replyMessage);
 }

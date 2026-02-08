@@ -88,6 +88,11 @@ export const messageRepository = {
     return !!message;
   },
 
+  async deleteByChannelId(channelId: string): Promise<number> {
+    const result = await db.delete(messages).where(eq(messages.channelId, channelId)).returning();
+    return result.length;
+  },
+
   // Append-only: messages should not be deleted in production
   // This is only for development/testing
   async delete(id: string): Promise<boolean> {

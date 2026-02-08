@@ -81,13 +81,23 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
       ws.onmessage = (event) => {
         if (!mountedRef.current) return;
-        try {
-          const data = JSON.parse(event.data) as WSEvent;
-          setLastMessage(data);
-          onMessageRef.current?.(data);
-        } catch {
-          console.error('Failed to parse WebSocket message:', event.data);
-        }
+        const handle = async () => {
+          try {
+            const raw = event.data instanceof Blob
+              ? await event.data.text()
+              : typeof event.data === 'string'
+                ? event.data
+                : event.data instanceof ArrayBuffer
+                  ? new TextDecoder().decode(event.data)
+                  : String(event.data);
+            const data = JSON.parse(raw) as WSEvent;
+            setLastMessage(data);
+            onMessageRef.current?.(data);
+          } catch {
+            console.error('Failed to parse WebSocket message:', event.data);
+          }
+        };
+        void handle();
       };
 
       wsRef.current = ws;

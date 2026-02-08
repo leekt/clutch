@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { correlationMiddleware, correlationStorage } from './middleware/index.js';
 import { registerRoutes } from './routes/index.js';
-import { agentRegistry, workflowEngine, messageBus } from './services/index.js';
+import { agentRegistry, workflowEngine, messageBus, agentExecutor } from './services/index.js';
 import { oauthService } from './services/oauth.js';
 import { redis, pubsub, CHANNELS, closeQueue } from './queue/index.js';
 
@@ -89,9 +89,16 @@ app.get('/ws', { websocket: true }, (socket: SocketStream) => {
   });
 });
 
+// Map Redis channel names to WSEvent type fields
+const CHANNEL_TO_TYPE: Record<string, string> = {
+  [CHANNELS.TASK_UPDATES]: 'task_update',
+  [CHANNELS.MESSAGE_UPDATES]: 'message_update',
+  [CHANNELS.AGENT_STATUS]: 'agent_status',
+};
+
 // Broadcast to all WebSocket clients
-function broadcast(channel: string, data: unknown) {
-  const message = JSON.stringify({ channel, data });
+function broadcast(data: unknown) {
+  const message = JSON.stringify(data);
   for (const client of wsClients) {
     if (!client.destroyed) {
       client.write(message);
@@ -112,7 +119,9 @@ async function setupPubSubForwarding() {
   subscriber.on('message', (channel, message) => {
     try {
       const data = JSON.parse(message);
-      broadcast(channel, data);
+      const eventType = CHANNEL_TO_TYPE[channel];
+      // Merge the event type into the data so the frontend gets { type, ...data }
+      broadcast({ type: eventType, ...data });
     } catch (err) {
       logger.error({ err, channel }, 'Failed to parse pub/sub message');
     }
@@ -139,6 +148,9 @@ async function initializeServices() {
     // Start message bus
     await messageBus.start();
 
+    // Initialize agent executor (creates runtimes for all agents)
+    await agentExecutor.initialize();
+
     logger.info('Services initialized');
   } catch (err) {
     logger.error({ err }, 'Failed to initialize services');
@@ -152,6 +164,9 @@ async function shutdown() {
 
   // Stop message bus
   await messageBus.stop();
+
+  // Shut down agent runtimes
+  await agentExecutor.shutdown();
 
   // Close WebSocket connections
   for (const client of wsClients) {

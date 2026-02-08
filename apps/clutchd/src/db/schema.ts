@@ -58,7 +58,7 @@ export const domainEnum = pgEnum('domain', [
 ]);
 
 // Channel types
-export const channelTypeEnum = pgEnum('channel_type', ['task', 'department']);
+export const channelTypeEnum = pgEnum('channel_type', ['task', 'department', 'dm']);
 
 // Review statuses
 export const reviewStatusEnum = pgEnum('review_status', ['pending', 'approved', 'rejected']);

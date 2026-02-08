@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { clsx } from 'clsx';
 import { useCreateAgent } from '../hooks/useQueries';
 import { api } from '../lib/api';
@@ -55,13 +55,11 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
 
   // Runtime
   const [runtimeType, setRuntimeType] = useState<'in-process' | 'http' | 'subprocess'>('subprocess');
-  const [providerPreset, setProviderPreset] = useState<'claude' | 'codex' | 'custom'>('claude');
+  const [providerPreset, setProviderPreset] = useState<'claude' | 'codex'>('claude');
   const [oauthToken, setOauthToken] = useState('');
   const [modelOverride, setModelOverride] = useState('');
   const [httpUrl, setHttpUrl] = useState('');
   const [httpHealthPath, setHttpHealthPath] = useState('/health');
-  const [command, setCommand] = useState('bun');
-  const [args, setArgs] = useState('scripts/agent-worker.ts --agent developer');
   const [cwd, setCwd] = useState('');
   const [protocol, setProtocol] = useState<'stdio' | 'http'>('stdio');
   const [timeoutMs, setTimeoutMs] = useState(120000);
@@ -70,15 +68,20 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
   const [oauthRedirectUrl, setOauthRedirectUrl] = useState('');
   const [oauthStatus, setOauthStatus] = useState<'idle' | 'pending' | 'received' | 'exchanged' | 'error'>('idle');
   const [codexRedirectUrl, setCodexRedirectUrl] = useState('http://localhost:1455/auth/callback');
+  const [workerRootDir, setWorkerRootDir] = useState('');
+  const [claudeWorkerPath, setClaudeWorkerPath] = useState('');
+  const [codexWorkerPath, setCodexWorkerPath] = useState('');
+  const [settingsDirty, setSettingsDirty] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
-  const getWorkerAgentKind = (agentRole: AgentRole) => {
-    if (agentRole === 'pm' || agentRole === 'research' || agentRole === 'marketing' || agentRole === 'developer') {
-      return agentRole;
-    }
-    return 'developer';
-  };
+  useEffect(() => {
+    api.settings.get().then((settings) => {
+      if (settings.workerRootDir) setWorkerRootDir(settings.workerRootDir);
+      if (settings.claudeWorkerPath) setClaudeWorkerPath(settings.claudeWorkerPath);
+      if (settings.codexWorkerPath) setCodexWorkerPath(settings.codexWorkerPath);
+    }).catch(() => undefined);
+  }, []);
 
   // Auto-fill description and strengths when role changes
   const handleRoleChange = (newRole: AgentRole) => {
@@ -90,8 +93,6 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
     if (strengths.length === 0) {
       setStrengths(PRESET_STRENGTHS[newRole].slice(0, 3));
     }
-    const workerRole = getWorkerAgentKind(newRole);
-    setArgs(`scripts/agent-worker.ts --agent ${workerRole}`);
   };
 
   const toggleStrength = (s: string) => {
@@ -119,8 +120,8 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
       return;
     }
 
-    if (runtimeType === 'subprocess' && !command.trim()) {
-      setError('Subprocess runtime requires a command');
+    if (runtimeType === 'subprocess' && !providerPreset) {
+      setError('Subprocess runtime requires a provider');
       return;
     }
 
@@ -128,6 +129,7 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
       setError('Codex requires OAuth (start OAuth flow or paste a token)');
       return;
     }
+
 
     setError(null);
 
@@ -147,18 +149,52 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
         runtimeEnv.ALLOW_GIT = gitAccess ? 'true' : 'false';
 
         if (providerPreset === 'claude') {
-          runtimeEnv.LLM_PROVIDER = 'anthropic';
+          const tools: string[] = [];
+          if (fileAccess) {
+            tools.push('Read', 'Edit');
+          }
+          if (shellAccess) {
+            tools.push('Bash');
+          }
+          runtimeEnv.CLUTCH_CLAUDE_ALLOWED_TOOLS = tools.join(',');
+          runtimeEnv.CLUTCH_CLAUDE_PERMISSION_MODE = fileAccess ? 'acceptEdits' : 'default';
         } else if (providerPreset === 'codex') {
           runtimeEnv.LLM_PROVIDER = 'openai';
         }
 
-        if (authTokenSecret) {
+        if (authTokenSecret && providerPreset !== 'claude') {
           envSecrets.LLM_API_KEY = authTokenSecret;
         }
 
         if (modelOverride.trim()) {
           runtimeEnv.LLM_DEFAULT_MODEL = modelOverride.trim();
         }
+      }
+
+      if (settingsDirty) {
+        await api.settings.update({
+          workerRootDir: workerRootDir || undefined,
+          claudeWorkerPath: claudeWorkerPath || undefined,
+          codexWorkerPath: codexWorkerPath || undefined,
+        });
+        setSettingsDirty(false);
+      }
+
+      const resolvedWorkerRoot = workerRootDir.trim();
+      const resolvedCwd = cwd.trim() || resolvedWorkerRoot;
+      const runtimeEnvWithWorker = { ...runtimeEnv };
+      if (resolvedCwd) {
+        if (providerPreset === 'claude') {
+          runtimeEnvWithWorker.CLUTCH_CLAUDE_CWD = resolvedCwd;
+        } else if (providerPreset === 'codex') {
+          runtimeEnvWithWorker.CLUTCH_CODEX_CWD = resolvedCwd;
+        }
+      }
+      if (providerPreset === 'claude' && claudeWorkerPath.trim()) {
+        runtimeEnvWithWorker.CLUTCH_CLAUDE_BIN = claudeWorkerPath.trim();
+      }
+      if (providerPreset === 'codex' && codexWorkerPath.trim()) {
+        runtimeEnvWithWorker.CLUTCH_CODEX_BIN = codexWorkerPath.trim();
       }
 
       const runtimeConfig =
@@ -175,12 +211,14 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
               }
             : {
                 type: 'subprocess' as const,
-                command: command.trim(),
-                args: args.split(/\s+/).filter(Boolean),
-                cwd: cwd.trim() || undefined,
-                env: Object.keys(runtimeEnv).length ? runtimeEnv : undefined,
+                command: providerPreset === 'claude' ? 'claude' : 'codex',
+                args: [],
+                cwd: resolvedCwd || undefined,
+                env: {
+                  ...(Object.keys(runtimeEnvWithWorker).length ? runtimeEnvWithWorker : {}),
+                },
                 envSecrets: Object.keys(envSecrets).length ? envSecrets : undefined,
-                protocol,
+                protocol: 'stdio' as const,
                 timeoutMs,
               };
 
@@ -576,13 +614,17 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
                 <label className="block text-sm text-gray-400 mb-2">Provider Preset</label>
                 <div className="flex gap-2">
                   {[
-                    { id: 'claude' as const, label: 'Claude' },
+                    { id: 'claude' as const, label: 'Claude Code' },
                     { id: 'codex' as const, label: 'Codex' },
-                    { id: 'custom' as const, label: 'Custom' },
                   ].map((p) => (
                     <button
                       key={p.id}
-                      onClick={() => setProviderPreset(p.id)}
+                      onClick={() => {
+                        setProviderPreset(p.id);
+                        if (p.id === 'claude') {
+                          setRuntimeType('subprocess');
+                        }
+                      }}
                       className={clsx(
                         'px-3 py-1.5 rounded text-sm',
                         providerPreset === p.id ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
@@ -594,7 +636,7 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
                 </div>
               </div>
 
-              {(runtimeType === 'subprocess' || runtimeType === 'http') && (
+              {(runtimeType === 'subprocess' || runtimeType === 'http') && providerPreset !== 'claude' && (
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">OAuth / API Token</label>
                   <input
@@ -612,7 +654,7 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
 
               {providerPreset === 'claude' && (
                 <p className="text-xs text-gray-500">
-                  OpenClaw uses the Claude setup-token flow (run `claude setup-token` and paste the token here).
+                  Claude Code uses the setup-token flow. Run `claude setup-token`, then use the CLI login; no API key needed.
                 </p>
               )}
 
@@ -700,29 +742,39 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
 
               {runtimeType === 'subprocess' && (
                 <>
+                  <div className="rounded border border-gray-700 bg-gray-800/40 p-3 text-xs text-gray-400">
+                    {providerPreset === 'claude'
+                      ? 'Worker: Claude Code'
+                      : 'Worker: Codex'}
+                  </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Command</label>
+                    <label className="block text-sm text-gray-400 mb-1">Worker Root Dir (optional)</label>
                     <input
                       type="text"
-                      value={command}
-                      onChange={(e) => setCommand(e.target.value)}
-                      placeholder="bun"
+                      value={workerRootDir}
+                      onChange={(e) => { setWorkerRootDir(e.target.value); setSettingsDirty(true); }}
+                      placeholder="~/.clutch/<workspace_name>/workers"
                       className="w-full px-3 py-2 bg-gray-700 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Args</label>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      {providerPreset === 'claude' ? 'Claude CLI Path (optional)' : 'Codex CLI Path (optional)'}
+                    </label>
                     <input
                       type="text"
-                      value={args}
-                      onChange={(e) => setArgs(e.target.value)}
-                      placeholder="scripts/agent-worker.ts --agent developer"
+                      value={providerPreset === 'claude' ? claudeWorkerPath : codexWorkerPath}
+                      onChange={(e) => {
+                        if (providerPreset === 'claude') {
+                          setClaudeWorkerPath(e.target.value);
+                        } else {
+                          setCodexWorkerPath(e.target.value);
+                        }
+                        setSettingsDirty(true);
+                      }}
+                      placeholder={providerPreset === 'claude' ? 'claude' : 'codex'}
                       className="w-full px-3 py-2 bg-gray-700 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Default worker supports pm/research/marketing/developer.</p>
-                    {role === 'qa' && (
-                      <p className="text-xs text-amber-400 mt-1">QA role is not supported by the default worker. Use HTTP or custom subprocess.</p>
-                    )}
                   </div>
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">Working Directory (optional)</label>

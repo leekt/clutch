@@ -16,6 +16,11 @@ export const channelRepository = {
     return channel;
   },
 
+  async deleteByName(name: string): Promise<boolean> {
+    const result = await db.delete(channels).where(eq(channels.name, name)).returning();
+    return result.length > 0;
+  },
+
   async findByTaskId(taskId: string): Promise<Channel | undefined> {
     const [channel] = await db.select().from(channels).where(eq(channels.taskId, taskId));
     return channel;

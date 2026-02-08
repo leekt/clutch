@@ -29,8 +29,25 @@ The biggest architectural gap. `AgentExecutorService` hardcodes 4 in-process age
 ## P1: Container & Process Runtimes
 
 - [ ] **Docker runtime** — Container-per-session: spin up, mount workspace, execute, tear down (bring back `ContainerManager` properly)
-- [ ] **Subprocess runtime** — Run agents as child processes (Claude Code, Python scripts, Node scripts)
+- [x] **Subprocess runtime** — Run agents as child processes (Claude Code, Python scripts, Node scripts)
 - [ ] **Container-per-session model** — Wire agent sessions (`agent-session.ts`) to actually spawn/destroy containers
+
+## P1: Secrets & OAuth
+
+- [x] **Secrets vault** — Encrypted storage for OAuth/API tokens (CLUTCH_SECRET_KEY)
+- [x] **Runtime secret refs** — Resolve secret refs into runtime env/auth
+- [x] **Codex OAuth** — PKCE flow with fixed Codex CLI auth URL/client_id; local callback on `http://localhost:1455/auth/callback`
+- [ ] **Docs** — Troubleshooting for redirect_uri mismatch + local callback binding
+
+## P1: Claude Code
+
+- [x] **Claude Code worker** — Subprocess wrapper that calls `claude -p` with JSON output
+- [ ] **Docs** — Setup-token/login instructions and tool permission mapping
+
+## P1: Codex
+
+- [x] **Codex CLI worker** — Subprocess wrapper that calls `codex` in a PTY
+- [ ] **Docs** — Codex CLI login + OAuth troubleshooting
 
 ## P1: Governance & Roles
 

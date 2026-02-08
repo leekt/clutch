@@ -17,6 +17,22 @@ Implementation plan for Clutch - tracking progress toward MVP goals.
 
 ---
 
+## Docs Drift (Needs Sync)
+
+- Codex OAuth uses a fixed client id + PKCE and a local callback at `http://localhost:1455/auth/callback` (no env client id required).
+- Claude/Codex subprocess workers are JS PTY wrappers (`scripts/claude-code-worker.js`, `scripts/codex-code-worker.js`) invoked via runtime normalization (no `bun run`).
+- Local settings + secrets now persist under `~/.clutch/<workspace_name>/` (settings + secrets).
+
+---
+
+## Next Steps (Ordered)
+
+1. Update docs for Codex OAuth flow, local callback, and local secrets directory.
+2. Update docs for Claude Code login/setup and tool permission mapping.
+3. Add a small CLI/script to sanity-check subprocess workers without the UI.
+
+---
+
 ## Phase 0: Project Setup & Infrastructure
 
 **Status:** ✅ Complete
@@ -382,11 +398,15 @@ Implementation plan for Clutch - tracking progress toward MVP goals.
 **Next Action:** Audit protocol/storage drift (security fields, schema_ref, dedupe); enforce append-only event log; add role-based merge gates
 
 **Next Steps (Security & Hiring):**
-1. Build secrets vault (encrypted) and store OAuth/API tokens as references
-2. Update Hire Agent UI to save tokens into secrets and use refs in runtime config
-3. Resolve secret refs at runtime (http auth token + subprocess env secrets)
-4. Add OpenClaw OAuth flow (PKCE + local callback) for Codex, store token as secret
-5. Document OAuth callback URL and required OpenClaw client ID
+1. ✅ Build secrets vault (encrypted) and store OAuth/API tokens as references
+2. ✅ Update Hire Agent UI to save tokens into secrets and use refs in runtime config
+3. ✅ Resolve secret refs at runtime (http auth token + subprocess env secrets)
+4. ⏳ Codex OAuth flow (PKCE + local callback) without API keys; use fixed Codex CLI auth URL and client_id
+5. Document Codex callback URL and troubleshooting (redirect mismatch, local callback binding)
+6. ✅ Claude Code subprocess worker (CLI wrapper) + Hire UI wiring
+7. Document Claude Code setup-token + CLI install requirements
+8. ✅ Codex CLI worker (openai-codex wrapper) + Hire UI wiring
+9. Document Codex CLI login + OAuth troubleshooting
 
 ---
 

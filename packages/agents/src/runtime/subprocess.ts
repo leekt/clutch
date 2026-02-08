@@ -90,6 +90,15 @@ export class SubprocessRuntime implements AgentRuntime {
         }
 
         if (code !== 0) {
+          if (stdout.trim()) {
+            try {
+              const result = JSON.parse(stdout) as TaskResult;
+              resolve(result);
+              return;
+            } catch {
+              // fall through to error
+            }
+          }
           resolve({
             taskId: dispatch.taskId,
             success: false,
