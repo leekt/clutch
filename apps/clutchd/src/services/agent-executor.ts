@@ -9,7 +9,6 @@ import {
 import { dirname, resolve, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
-import { existsSync } from 'fs';
 
 import { logger } from '../logger.js';
 import { pubsub } from '../queue/index.js';
@@ -35,112 +34,119 @@ export class AgentExecutorService {
     }
 
     const command = (config.command || '').trim();
-    const expandedCommand = command.startsWith('~/')
-      ? resolve(homedir(), command.slice(2))
-      : command;
     const commandBase = basename(command);
-    let normalized: RuntimeConfig = { ...config };
+    const nodeBin = process.execPath;
+    const codexWorker = resolve(this.projectRoot, 'scripts', 'codex-code-worker.js');
+    const claudeWorker = resolve(this.projectRoot, 'scripts', 'claude-code-worker.js');
 
-    if (commandBase === 'claude') {
+    // Determine which worker script to use based on the command
+    const workerScript = this.resolveWorkerScript(commandBase, config.args, claudeWorker, codexWorker);
+
+    let normalized: RuntimeConfig = workerScript
+      ? { ...config, command: nodeBin, args: [workerScript] }
+      : { ...config };
+
+    // Pass the original CLI path as env var so the worker can invoke it
+    const isDirectCli = commandBase === 'claude' || commandBase === 'codex' || commandBase === 'openai-codex';
+    if (isDirectCli) {
+      const expandedCommand = command.startsWith('~/')
+        ? resolve(homedir(), command.slice(2))
+        : command;
+      const envKey = commandBase === 'claude' ? 'CLUTCH_CLAUDE_BIN' : 'CLUTCH_CODEX_BIN';
       normalized = {
-        ...config,
-        command: 'node',
-        args: [resolve(this.projectRoot, 'scripts', 'claude-code-worker.js')],
+        ...normalized,
+        env: { ...(normalized.env ?? {}), [envKey]: expandedCommand },
       };
     }
 
-    if (commandBase === 'codex' || commandBase === 'openai-codex') {
-      normalized = {
-        ...config,
-        command: 'node',
-        args: [resolve(this.projectRoot, 'scripts', 'codex-code-worker.js')],
-      };
+    // Expand ~ in cwd, default to project root
+    const rawCwd = (normalized as { cwd?: string }).cwd;
+    const expandedCwd = rawCwd
+      ? (rawCwd.startsWith('~/') ? resolve(homedir(), rawCwd.slice(2)) : rawCwd)
+      : this.projectRoot;
+    normalized = { ...normalized, cwd: expandedCwd };
+
+    // Expand ~ in env values (e.g. CLUTCH_CODEX_CWD, CLUTCH_CLAUDE_CWD)
+    if (normalized.env) {
+      const expandedEnv: Record<string, string> = {};
+      for (const [k, v] of Object.entries(normalized.env)) {
+        expandedEnv[k] = v.startsWith('~/') ? resolve(homedir(), v.slice(2)) : v;
+      }
+      normalized = { ...normalized, env: expandedEnv };
     }
 
-    if (normalized.args && normalized.args.length > 0) {
-      const firstArg = normalized.args[0]!;
-      const resolvedArg = firstArg.startsWith('~/') ? resolve(homedir(), firstArg.slice(2)) : firstArg;
-      const argsJoined = normalized.args.join(' ');
-      if (commandBase === 'bun' && (argsJoined.includes('claude-code-worker') || argsJoined.includes('codex-code-worker'))) {
-        if (argsJoined.includes('claude-code-worker')) {
-          normalized = {
-            ...normalized,
-            command: 'node',
-            args: [resolve(this.projectRoot, 'scripts', 'claude-code-worker.js')],
-          };
-        }
-        if (argsJoined.includes('codex-code-worker')) {
-          normalized = {
-            ...normalized,
-            command: 'node',
-            args: [resolve(this.projectRoot, 'scripts', 'codex-code-worker.js')],
-          };
-        }
-      }
-      if (firstArg.endsWith('codex-code-worker.ts')) {
-        normalized = {
-          ...normalized,
-          command: 'node',
-          args: [resolve(this.projectRoot, 'scripts', 'codex-code-worker.js')],
-        };
-      }
-      if (firstArg.endsWith('claude-code-worker.ts')) {
-        normalized = {
-          ...normalized,
-          command: 'node',
-          args: [resolve(this.projectRoot, 'scripts', 'claude-code-worker.js')],
-        };
-      }
-      if (!existsSync(resolvedArg)) {
-        if (firstArg.includes('claude-code-worker')) {
-          normalized = {
-            ...normalized,
-            command: 'node',
-            args: [resolve(this.projectRoot, 'scripts', 'claude-code-worker.js')],
-          };
-        }
-        if (firstArg.includes('codex-code-worker')) {
-          normalized = {
-            ...normalized,
-            command: 'node',
-            args: [resolve(this.projectRoot, 'scripts', 'codex-code-worker.js')],
-          };
-        }
-      }
+    return normalized;
+  }
+
+  /**
+   * Resolve which worker script to use based on the subprocess command and its args.
+   * Returns the worker path, or undefined if no redirect is needed.
+   */
+  private resolveWorkerScript(
+    commandBase: string,
+    args: string[] | undefined,
+    claudeWorker: string,
+    codexWorker: string,
+  ): string | undefined {
+    // Direct CLI commands map to their worker
+    if (commandBase === 'claude') return claudeWorker;
+    if (commandBase === 'codex' || commandBase === 'openai-codex') return codexWorker;
+
+    // Runner commands (bun, node) are redirected based on which worker is in their args
+    if (commandBase === 'bun' || commandBase === 'node') {
+      if (args?.some(a => a.includes('claude-code-worker'))) return claudeWorker;
+      if (args?.some(a => a.includes('codex-code-worker'))) return codexWorker;
     }
 
-    const finalCommand =
-      normalized.command === config.command ? expandedCommand : normalized.command;
-
-    if (!normalized.cwd) {
-      return { ...normalized, command: finalCommand, cwd: this.projectRoot };
-    }
-
-    return { ...normalized, command: finalCommand };
+    return undefined;
   }
 
   private async resolveRuntimeSecrets(config: RuntimeConfig): Promise<RuntimeConfig> {
-    if (config.type === 'http') {
-      const httpConfig = config as RuntimeConfig & { authTokenSecret?: string };
-      if (httpConfig.authTokenSecret) {
-        const token = await secretStore.getSecret(httpConfig.authTokenSecret);
-        return { ...config, authToken: token };
+    try {
+      if (config.type === 'http') {
+        const httpConfig = config as RuntimeConfig & { authTokenSecret?: string };
+        if (httpConfig.authTokenSecret) {
+          const token = await secretStore.getSecret(httpConfig.authTokenSecret);
+          return { ...config, authToken: token };
+        }
+        return config;
       }
-      return config;
-    }
 
-    if (config.type === 'subprocess') {
-      const subConfig = config as RuntimeConfig & { envSecrets?: Record<string, string> };
-      if (subConfig.envSecrets && Object.keys(subConfig.envSecrets).length > 0) {
-        const secretEnv = await secretStore.resolveEnvSecrets(subConfig.envSecrets);
-        return {
-          ...config,
-          env: { ...(config.env ?? {}), ...secretEnv },
-        };
+      if (config.type === 'subprocess') {
+        const subConfig = config as RuntimeConfig & { envSecrets?: Record<string, string> };
+        if (subConfig.envSecrets && Object.keys(subConfig.envSecrets).length > 0) {
+          const secretEnv = await secretStore.resolveEnvSecrets(subConfig.envSecrets);
+          return {
+            ...config,
+            env: { ...(config.env ?? {}), ...secretEnv },
+          };
+        }
       }
+    } catch (error) {
+      logger.warn({ error, type: config.type }, 'Failed to resolve runtime secrets (agent may fail at execution time)');
     }
 
     return config;
+  }
+
+  /**
+   * Create a runtime from config, wire up event handlers, and initialize it.
+   */
+  private async createAndInitRuntime(agentName: string, rawConfig: unknown): Promise<AgentRuntime> {
+    const config: RuntimeConfig = (rawConfig as RuntimeConfig) ?? { type: 'in-process' };
+    const normalized = this.normalizeRuntimeConfig(config);
+    const resolved = await this.resolveRuntimeSecrets(normalized);
+    const runtime = createRuntime(agentName, resolved);
+
+    runtime.onProgress?.((update) => {
+      this.handleProgress(agentName, update);
+    });
+    runtime.onToolCall?.((call) => {
+      this.handleToolCall(agentName, call);
+    });
+
+    await runtime.initialize();
+    return runtime;
   }
 
   /**
@@ -154,21 +160,7 @@ export class AgentExecutorService {
 
     for (const agent of agents) {
       try {
-        const runtimeConfig: RuntimeConfig = (agent.runtime as RuntimeConfig) ?? { type: 'in-process' };
-        const normalized = this.normalizeRuntimeConfig(runtimeConfig);
-        const resolved = await this.resolveRuntimeSecrets(normalized);
-        const runtime = createRuntime(agent.name, resolved);
-
-        // Wire up event forwarding
-        runtime.onProgress?.((update) => {
-          this.handleProgress(agent.name, update);
-        });
-
-        runtime.onToolCall?.((call) => {
-          this.handleToolCall(agent.name, call);
-        });
-
-        await runtime.initialize();
+        const runtime = await this.createAndInitRuntime(agent.name, agent.runtime);
         this.runtimes.set(agent.name, runtime);
       } catch (error) {
         logger.warn({ agentName: agent.name, error }, 'Failed to initialize runtime (agent will be unavailable)');
@@ -183,24 +175,11 @@ export class AgentExecutorService {
    * Ensure a runtime exists for an agent, creating it on-demand if needed.
    */
   private async ensureRuntime(agentName: string, runtimeConfig?: unknown): Promise<AgentRuntime | undefined> {
-    let runtime = this.runtimes.get(agentName);
-    if (runtime) return runtime;
+    const existing = this.runtimes.get(agentName);
+    if (existing) return existing;
 
-    // Try to create on-demand
     try {
-      const config: RuntimeConfig = (runtimeConfig as RuntimeConfig) ?? { type: 'in-process' };
-      const normalized = this.normalizeRuntimeConfig(config);
-      const resolved = await this.resolveRuntimeSecrets(normalized);
-      runtime = createRuntime(agentName, resolved);
-
-      runtime.onProgress?.((update) => {
-        this.handleProgress(agentName, update);
-      });
-      runtime.onToolCall?.((call) => {
-        this.handleToolCall(agentName, call);
-      });
-
-      await runtime.initialize();
+      const runtime = await this.createAndInitRuntime(agentName, runtimeConfig);
       this.runtimes.set(agentName, runtime);
       return runtime;
     } catch (error) {

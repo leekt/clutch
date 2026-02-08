@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const pty = require('node-pty');
+const { spawn } = require('child_process');
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -12,6 +12,11 @@ function readStdin() {
 }
 
 function buildPrompt(dispatch, context) {
+  // For chat actions, just use the message directly
+  if (dispatch.action === 'chat' && dispatch.input && dispatch.input.message) {
+    return String(dispatch.input.message);
+  }
+
   const parts = [
     `Action: ${dispatch.action}`,
     `Task ID: ${dispatch.taskId}`,
@@ -22,39 +27,38 @@ function buildPrompt(dispatch, context) {
   return parts.join('\n\n');
 }
 
-function parseOutput(raw) {
-  try {
-    const json = JSON.parse(raw);
-    const text =
-      json.output_text ||
-      (json.content || []).map((c) => c.text).filter(Boolean).join('\n') ||
-      '';
-    return { text, json };
-  } catch {
-    return { text: raw };
-  }
-}
-
 async function runCodex(prompt) {
   const cwd = process.env.CLUTCH_CODEX_CWD || process.cwd();
   const bin = process.env.CLUTCH_CODEX_BIN || 'codex';
 
-  const args = [
-    prompt,
-  ];
+  const args = ['exec', '--skip-git-repo-check', prompt];
+
+  // Remap LLM_API_KEY to OPENAI_API_KEY for the codex subprocess
+  const childEnv = {
+    ...process.env,
+    ...(process.env.LLM_API_KEY ? { OPENAI_API_KEY: process.env.LLM_API_KEY } : {}),
+  };
 
   return new Promise((resolve) => {
-    const shell = pty.spawn(bin, args, {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 30,
+    const child = spawn(bin, args, {
       cwd,
-      env: { ...process.env, TERM: 'xterm-256color' },
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    let output = '';
-    shell.onData((data) => { output += data; });
-    shell.onExit(({ exitCode }) => resolve({ output, code: exitCode }));
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => { stdout += data.toString(); });
+    child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    child.on('close', (code) => {
+      resolve({ stdout, stderr, code });
+    });
+
+    child.on('error', (err) => {
+      resolve({ stdout: '', stderr: err.message, code: 1 });
+    });
   });
 }
 
@@ -75,7 +79,7 @@ async function main() {
       success: false,
       error: {
         code: 'CODEX_CLI_ERROR',
-        message: `codex exited with code ${result.code}`,
+        message: result.stderr || `codex exited with code ${result.code}`,
         retryable: true,
       },
       usage: { cost: 0, runtime, tokens: 0 },
@@ -83,10 +87,13 @@ async function main() {
     return;
   }
 
+  // Use stdout as the response text
+  const responseText = result.stdout.trim() || 'Done.';
+
   process.stdout.write(JSON.stringify({
     taskId: input.dispatch.taskId,
     success: true,
-    output: { content: result.output, raw: result.output },
+    output: { content: responseText },
     usage: { cost: 0, runtime, tokens: 0 },
   }));
 }

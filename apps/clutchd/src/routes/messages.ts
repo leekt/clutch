@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { messageRepository, auditRepository, channelRepository } from '../repositories/index.js';
 import { pubsub } from '../queue/index.js';
+import { logger } from '../logger.js';
 import { agentExecutor } from '../services/agent-executor.js';
 import { generateMessageId, generateThreadId, generateRunId, generateTaskId } from '@clutch/protocol';
 
@@ -307,7 +308,7 @@ export async function messageRoutes(app: FastifyInstance) {
         runId,
         channelId: request.params.channelId,
       }).catch((err) => {
-        console.error('Agent dispatch failed:', err);
+        logger.error({ err, agentId: toAgentId }, 'Agent dispatch failed');
       });
     }
 
@@ -346,16 +347,7 @@ async function dispatchAgentReply(
   });
 
   // Extract response text from agent output
-  let responseText: string;
-  if (!result.success) {
-    responseText = result.error?.message ?? 'Sorry, I encountered an error processing your message.';
-  } else if (result.output && typeof result.output === 'object') {
-    const output = result.output as Record<string, unknown>;
-    // Worker scripts return { content, raw }, other agents may use message/response/result
-    responseText = String(output.content ?? output.message ?? output.response ?? output.result ?? JSON.stringify(output));
-  } else {
-    responseText = String(result.output ?? 'Done.');
-  }
+  const responseText = extractResponseText(result);
 
   // Post the agent's reply back to the same channel
   const replyMessageId = generateMessageId();
@@ -384,4 +376,22 @@ async function dispatchAgentReply(
   });
 
   await pubsub.publishMessageUpdate(replyMessageId, 'created', replyMessage);
+}
+
+/**
+ * Extract a human-readable response string from a TaskResult.
+ * Worker scripts return { content, raw }; other agents may use message/response/result.
+ */
+function extractResponseText(result: { success: boolean; error?: { message?: string }; output?: unknown }): string {
+  if (!result.success) {
+    return result.error?.message ?? 'Sorry, I encountered an error processing your message.';
+  }
+
+  if (result.output && typeof result.output === 'object') {
+    const output = result.output as Record<string, unknown>;
+    const text = output.content ?? output.message ?? output.response ?? output.result;
+    return text != null ? String(text) : JSON.stringify(output);
+  }
+
+  return String(result.output ?? 'Done.');
 }

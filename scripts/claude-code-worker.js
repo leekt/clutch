@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const pty = require('node-pty');
+const { spawn } = require('child_process');
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -12,6 +12,11 @@ function readStdin() {
 }
 
 function buildPrompt(dispatch, context) {
+  // For chat actions, just use the message directly
+  if (dispatch.action === 'chat' && dispatch.input && dispatch.input.message) {
+    return String(dispatch.input.message);
+  }
+
   const parts = [
     `Action: ${dispatch.action}`,
     `Task ID: ${dispatch.taskId}`,
@@ -48,22 +53,32 @@ async function runClaude(prompt) {
     'json',
     '--permission-mode',
     permissionMode,
-    '--tools',
-    allowedTools,
   ];
 
+  if (allowedTools.trim()) {
+    args.push('--tools', allowedTools);
+  }
+
   return new Promise((resolve) => {
-    const shell = pty.spawn(bin, args, {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 30,
+    const child = spawn(bin, args, {
       cwd,
-      env: { ...process.env, TERM: 'xterm-256color' },
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    let output = '';
-    shell.onData((data) => { output += data; });
-    shell.onExit(({ exitCode }) => resolve({ output, code: exitCode }));
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => { stdout += data.toString(); });
+    child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    child.on('close', (code) => {
+      resolve({ stdout, stderr, code });
+    });
+
+    child.on('error', (err) => {
+      resolve({ stdout: '', stderr: err.message, code: 1 });
+    });
   });
 }
 
@@ -84,7 +99,7 @@ async function main() {
       success: false,
       error: {
         code: 'CLAUDE_CODE_ERROR',
-        message: `claude exited with code ${result.code}`,
+        message: result.stderr || `claude exited with code ${result.code}`,
         retryable: true,
       },
       usage: { cost: 0, runtime, tokens: 0 },
@@ -92,11 +107,11 @@ async function main() {
     return;
   }
 
-  const parsed = parseOutput(result.output);
+  const parsed = parseOutput(result.stdout);
   process.stdout.write(JSON.stringify({
     taskId: input.dispatch.taskId,
     success: true,
-    output: { content: parsed.text, raw: parsed.json || result.output },
+    output: { content: parsed.text, raw: parsed.json || result.stdout },
     usage: { cost: 0, runtime, tokens: 0 },
   }));
 }

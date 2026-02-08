@@ -197,30 +197,34 @@ export function HireAgentModal({ onClose }: HireAgentModalProps) {
         runtimeEnvWithWorker.CLUTCH_CODEX_BIN = codexWorkerPath.trim();
       }
 
-      const runtimeConfig =
-        runtimeType === 'in-process'
-          ? { type: 'in-process' as const }
-          : runtimeType === 'http'
-            ? {
-                type: 'http' as const,
-                url: httpUrl.trim(),
-                authToken: undefined,
-                authTokenSecret,
-                timeoutMs,
-                healthPath: httpHealthPath.trim() || undefined,
-              }
-            : {
-                type: 'subprocess' as const,
-                command: providerPreset === 'claude' ? 'claude' : 'codex',
-                args: [],
-                cwd: resolvedCwd || undefined,
-                env: {
-                  ...(Object.keys(runtimeEnvWithWorker).length ? runtimeEnvWithWorker : {}),
-                },
-                envSecrets: Object.keys(envSecrets).length ? envSecrets : undefined,
-                protocol: 'stdio' as const,
-                timeoutMs,
-              };
+      let runtimeConfig;
+      switch (runtimeType) {
+        case 'in-process':
+          runtimeConfig = { type: 'in-process' as const };
+          break;
+        case 'http':
+          runtimeConfig = {
+            type: 'http' as const,
+            url: httpUrl.trim(),
+            authToken: undefined,
+            authTokenSecret,
+            timeoutMs,
+            healthPath: httpHealthPath.trim() || undefined,
+          };
+          break;
+        case 'subprocess':
+          runtimeConfig = {
+            type: 'subprocess' as const,
+            command: providerPreset === 'claude' ? 'claude' : 'codex',
+            args: [],
+            cwd: resolvedCwd || undefined,
+            env: Object.keys(runtimeEnvWithWorker).length ? runtimeEnvWithWorker : undefined,
+            envSecrets: Object.keys(envSecrets).length ? envSecrets : undefined,
+            protocol,
+            timeoutMs,
+          };
+          break;
+      }
 
       await createAgent.mutateAsync({
         name: name.trim().toLowerCase(),
